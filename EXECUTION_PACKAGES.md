@@ -109,16 +109,20 @@ Packages run strictly in order. Only **WP-01** is ready now; later packages are 
 
 ## WP-07 — Timeline, matching and rules
 
-- **Status:** draft; expand after WP-06.
-- **Purpose / why now:** Build deterministic compilation before review. R5; PRD-10, PRD-13, PRD-21.
-- **Scope candidate:** Time zone/day rules, unplaced/equal-time sequencing, chronology warnings, evidence-based duplicate candidates, source authority and rerun behavior.
-- **Out of scope:** Invented times, title-only merge, silent approved-master changes.
-- **Preconditions:** Validated extracted records and event ownership.
-- **Likely files/systems:** Compilation/domain functions, event rules storage/UI, tests.
-- **Sensitive systems:** Rules and master derivation.
-- **Allowed / forbidden:** Pure deterministic functions/fixtures; do not mutate approved revisions.
-- **Required checks / regression:** Build/type/lint/test; missing-time, ambiguous-zone, conflict/matching and rule-change tests; extraction/source/access tests.
-- **Done/evidence:** Reviewable draft ordering with warnings and no fabricated facts.
+- **Status:** complete (expanded from draft on 2026-10-28).
+- **Priority:** 7; depends on WP-06; blocks WP-08 proposal review.
+- **Human approval required:** No for deterministic local domain logic. **Data migration:** None; persistence of rules later.
+- **Purpose / anchors:** R5; PRD-10, 13, 21. Validated extracted fields need a chronology and explicit uncertainty before review.
+- **Minimum executable scope:** Pure timeline compiler for validated candidates with event-configured IANA time zone and stable source order. Accept only unambiguous ISO dates and HH:mm times; keep original strings, flag ambiguous/missing time zone, bad dates, impossible end-before-start, and put missing/invalid times in an unplaced section rather than inventing them. Tie equal times by source order. Generate duplicate **candidates** only when title similarity is supported by day/time or speaker evidence; never auto-merge. Rules are explicit input, not yet stored/UI-configurable.
+- **Out of scope/deferred:** Full time-zone conversions/DST resolution, duration inference, cross-day scheduling, persistent event rules, per-field authority, re-extraction jobs, approved master writes; WP-08+ and release gate retain these PRD-10/13 commitments.
+- **Preconditions:** WP-06 committed/clean; fixture candidates only.
+- **Likely files/systems:** `lib/timeline.ts`, `tests/timeline.test.ts`, package/log.
+- **Sensitive systems:** None externally; derived ordering must not silently mutate approved master.
+- **Allowed / forbidden:** Pure functions and fixture tests; no guessed times or automatic duplicate merge.
+- **Required checks:** Typecheck, lint, tests for chronology, missing/ambiguous times, tie order, zone validation and multi-signal duplicate suggestions; build.
+- **Regression checks:** WP-01–06 tests/route; clean package commit.
+- **Done/evidence:** Deterministic draft timeline with warnings/unplaced and non-destructive duplicate candidates, limitations logged, separate commit/clean tree.
+- **Future expansion:** WP-08 persists proposals/approval; event rules persistence/UI and richer timing remain explicit PRD-10/13 release work. Return to executor.
 
 ## WP-08 — Conflict review and approval history
 
