@@ -6,10 +6,12 @@ import schema from "./schema";
 
 const modules = import.meta.glob("./**/*.ts");
 
+process.env.ALLOWED_SIGNIN_DOMAINS = "test.sage";
+
 async function fixture() {
   const t = convexTest(schema, modules);
-  const alice = t.withIdentity({ subject: "alice", issuer: "https://identity.test", tokenIdentifier: "alice-token" });
-  const bob = t.withIdentity({ subject: "bob", issuer: "https://identity.test", tokenIdentifier: "bob-token" });
+  const alice = t.withIdentity({ subject: "alice", issuer: "https://identity.test", tokenIdentifier: "alice-token", email: "alice@test.sage" });
+  const bob = t.withIdentity({ subject: "bob", issuer: "https://identity.test", tokenIdentifier: "bob-token", email: "bob@test.sage" });
   const organizationId = await alice.mutation(api.organizations.create, { name: "SAGE" });
   const eventId = await alice.mutation(api.events.create, { organizationId, name: "Summit" });
   const sourceId = await alice.mutation(api.sources.create, { eventId, name: "Schedule", provider: "google_docs", url: "https://docs.google.com/document/d/abc/edit" });
