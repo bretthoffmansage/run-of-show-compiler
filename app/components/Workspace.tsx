@@ -44,11 +44,11 @@ export function Workspace({ sources, entries }: { sources: WorkspaceSource[]; en
           {selected && <div className="source-detail">
             <p className="eyebrow">{selected.provider.replaceAll("_", " ")} · {selected.state.replaceAll("_", " ")}</p>
             <h3>{selected.name}</h3>
-            <p className="metadata">Last successful sync: {selected.lastSuccessfulSync ?? "Never"}</p>
+            <p className="metadata">{selected.provider === "manual" ? "Static input · no live sync" : `Last successful sync: ${selected.lastSuccessfulSync ?? "Never"}`}</p>
             <pre>{selected.preview ?? "No accessible snapshot or preview is available."}</pre>
             {safeOriginalUrl(selected.originalUrl) && <a href={safeOriginalUrl(selected.originalUrl)!} target="_blank" rel="noopener noreferrer">Open original ↗</a>}
           </div>}
-        </> : <div className="empty"><span className="empty-mark" aria-hidden="true">↗</span><h3>No sources connected</h3><p>Google Docs and Sheets connections will become available after identity and provider setup. Nothing here is currently live or syncing.</p></div>}
+        </> : <div className="empty"><span className="empty-mark" aria-hidden="true">↗</span><h3>No sources yet</h3><p>Add a static manual source in the intake panel below. Google Docs and Sheets connections are deferred; nothing here is live or syncing.</p></div>}
       </section>
       <section className="pane" aria-labelledby="master-title">
         <div className="pane-heading"><span className="eyebrow">02 / OUTPUT</span><h2 id="master-title">Master run of show</h2></div>

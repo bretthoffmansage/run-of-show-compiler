@@ -1,0 +1,3 @@
+# Hardening pass 4 — route and local-scope consistency
+
+Reworded dashboard/empty source/manual metadata to label local static input and explicitly deferred Google/AI rather than implying live sync or identity-dependent connection. Added non-sensitive event-load error boundary with retry/back navigation. Preserved all forms, protected routes, provenance and export. `npm run check:local` passed (13 files/34 tests, build). Isolated loopback HTTP smoke: unauth event 307 and export 401, authenticated event/export 200, malformed export ID 404. No Google/AI/provider claim changed; original PRD deferrals remain in audit. Commit separately and verify clean tree.

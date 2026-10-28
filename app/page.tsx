@@ -24,6 +24,6 @@ export default async function Home({ searchParams }: { searchParams: Promise<{ o
         {active ? <><p className="muted">Choose an event to review its sources and approved master.</p><ul className="context-list">{events.map(event => <li key={event._id}><Link href={`/events/${event._id}`}>{event.name}<span>Open workspace →</span></Link></li>)}</ul><form action={createEvent} className="stacked-form"><input type="hidden" name="organizationId" value={active._id} /><label htmlFor="new-event">New event</label><input id="new-event" name="name" maxLength={120} required placeholder="Event name" /><button type="submit">Create event</button></form></> : <p className="muted">Create an organization first.</p>}
       </section>
     </div>
-    <p className="dashboard-note">Single-operator mode · Manual sources are static · Google and AI connections require separate setup.</p>
+    <p className="dashboard-note">Local single-operator preview · Manual sources are static · Google sync and AI extraction are deferred.</p>
   </main>;
 }

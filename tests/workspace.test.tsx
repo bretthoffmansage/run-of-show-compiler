@@ -22,4 +22,10 @@ describe("source and master workspace view", () => {
     expect(html).not.toContain("Open original");
     expect(html).not.toContain("javascript:");
   });
+
+  it("labels manual sources as static rather than synced", () => {
+    const html = renderToStaticMarkup(<Workspace sources={[{ id: "manual", name: "Notes", provider: "manual", state: "static", lastSuccessfulSync: null, preview: "Opening", originalUrl: null }]} entries={[]} />);
+    expect(html).toContain("Static input · no live sync");
+    expect(html).not.toContain("Last successful sync");
+  });
 });
