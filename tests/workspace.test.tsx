@@ -1,32 +1,55 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
-import { Workspace } from "../app/components/Workspace";
+import { Workspace, type WorkspaceEntry, type WorkspaceSource } from "../app/components/Workspace";
+
+function source(overrides: Partial<WorkspaceSource>): WorkspaceSource {
+  return {
+    id: "source-1", eventId: "event-1", name: "Agenda", provider: "google_docs", state: "connected",
+    lastCheckedAt: Date.now(), lastSyncAt: Date.now(), lastRevision: "drive:12", lastError: null,
+    preview: "09:00 Opening", originalUrl: "https://docs.google.com/document/d/abc/edit",
+    ...overrides,
+  };
+}
+
+const entry: WorkspaceEntry = {
+  id: "entry-1", date: "2026-11-03", time: "09:00", title: "Opening", speaker: "Ava Chen",
+  sourceName: "Agenda", sourceRevision: "r1", changeState: "needs_review", details: "Host welcome",
+  extras: [{ key: "production_note", value: "Cue walk-in music" }],
+};
 
 describe("source and master workspace view", () => {
   it("renders separate source and master panes with provenance and status", () => {
-    const html = renderToStaticMarkup(<Workspace
-      sources={[{ id: "source-1", name: "Agenda", provider: "google_docs", state: "stale", lastSuccessfulSync: "2026-10-28", preview: "09:00 Opening", originalUrl: "https://docs.google.com/document/d/abc/edit" }]}
-      entries={[{ id: "entry-1", date: "2026-11-03", time: "09:00", title: "Opening", sourceName: "Agenda", sourceRevision: "r1", changeState: "needs_review", details: "Host: Ava" }]}
-    />);
+    const html = renderToStaticMarkup(<Workspace sources={[source({})]} entries={[entry]} />);
     expect(html).toContain("Sources");
     expect(html).toContain("Master run of show");
-    expect(html).toContain("stale");
+    expect(html).toContain("Live · synced");
+    expect(html).toContain("Rev drive:12");
     expect(html).toContain("Revision r1");
-    expect(html).toContain("2026-11-03 · 09:00");
+    expect(html).toContain("2026-11-03");
+    expect(html).toContain("09:00");
+    expect(html).toContain("Ava Chen");
+    expect(html).toContain("Cue walk-in music");
     expect(html).toContain("needs review");
     expect(html).toContain("Open original");
     expect(html).toContain("Review pending proposals in the decisions panel below");
   });
 
+  it("surfaces stale and error states without claiming a live sync", () => {
+    const stale = renderToStaticMarkup(<Workspace sources={[source({ lastCheckedAt: Date.now() - 30 * 60_000 })]} entries={[]} />);
+    expect(stale).toContain("possibly stale");
+    const broken = renderToStaticMarkup(<Workspace sources={[source({ state: "needs_reauthorization" })]} entries={[]} />);
+    expect(broken).toContain("Needs reauthorization");
+  });
+
   it("does not render unsafe source links", () => {
-    const html = renderToStaticMarkup(<Workspace sources={[{ id: "x", name: "Bad", provider: "google_docs", state: "not_connected", lastSuccessfulSync: null, preview: null, originalUrl: "javascript:alert(1)" }]} entries={[]} />);
+    const html = renderToStaticMarkup(<Workspace sources={[source({ originalUrl: "javascript:alert(1)" })]} entries={[]} />);
     expect(html).not.toContain("Open original");
     expect(html).not.toContain("javascript:");
   });
 
   it("labels manual sources as static rather than synced", () => {
-    const html = renderToStaticMarkup(<Workspace sources={[{ id: "manual", name: "Notes", provider: "manual", state: "static", lastSuccessfulSync: null, preview: "Opening", originalUrl: null }]} entries={[]} />);
+    const html = renderToStaticMarkup(<Workspace sources={[source({ id: "manual", name: "Notes", provider: "manual", state: "static", originalUrl: null, preview: "Opening" })]} entries={[]} />);
     expect(html).toContain("Static input · no live sync");
-    expect(html).not.toContain("Last successful sync");
+    expect(html).not.toContain("Checked");
   });
 });

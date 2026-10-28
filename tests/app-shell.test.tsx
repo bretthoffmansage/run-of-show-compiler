@@ -8,7 +8,8 @@ describe("authenticated app shell", () => {
     expect(html).toContain("SAGE");
     expect(html).toContain("Summit");
     expect(html).toContain("Event workspace");
-    expect(html).toContain("No Google or AI connection");
+    expect(html).toContain("Settings");
+    expect(html).toContain("SAGE OPERATIONS CONSOLE");
     expect(html).toContain("Workflow controls");
   });
 });
