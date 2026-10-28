@@ -1,0 +1,6 @@
+{
+  "applicationDisplayName": "run_of_show_compiler",
+  "applicationFolderName": "run_of_show_compiler",
+  "createdAt": "2026-10-28T15:06:27.907Z",
+  "note": "Used only for the optional final ForgeShell packaging step. Nothing is renamed during bootstrap."
+}
