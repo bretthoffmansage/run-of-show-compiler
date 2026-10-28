@@ -3,17 +3,17 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev -H 127.0.0.1",
+    "dev": "next dev",
     "build": "next build",
-    "start": "next start -H 127.0.0.1",
+    "start": "next start",
     "typecheck": "tsc --noEmit",
-    "lint": "eslint app lib tests convex --ignore-pattern 'convex/_generated/**'",
+    "lint": "eslint app lib tests convex middleware.ts --ignore-pattern 'convex/_generated/**'",
     "test": "vitest run",
-    "setup:local-access": "node scripts/setup-local-access.mjs",
-    "configure:local-convex-auth": "node scripts/configure-local-convex-auth.mjs",
-    "check:local": "node scripts/check-repo-safety.mjs && npm run typecheck && npm run lint && npm test && npm run build"
+    "check": "node scripts/check-repo-safety.mjs && npm run typecheck && npm run lint && npm test && npm run build",
+    "check:local": "npm run check"
   },
   "dependencies": {
+    "@clerk/nextjs": "^7.9.22",
     "convex": "^1.48.0",
     "jose": "^6.2.13",
     "next": "^16.4.3",
