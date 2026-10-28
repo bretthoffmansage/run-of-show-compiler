@@ -41,16 +41,20 @@ Packages run strictly in order. Only **WP-01** is ready now; later packages are 
 
 ## WP-03 — Durable event/source model and source library
 
-- **Status:** draft; expand after WP-02.
-- **Purpose / why now:** Source ownership and lifecycle precede ingestion. R3; PRD-04–07, PRD-16–19.
-- **Scope candidate:** Validate backend/storage fit (AMB-03), event-scoped source records, honest live/static statuses, source actions and URL validation, initial library UI; define retention/deletion policy before production.
-- **Out of scope:** Claiming live Google connectivity, background sync, full file parser.
-- **Preconditions:** WP-02 access boundary and clean closeout.
-- **Likely files/systems:** Data schema/repositories, source actions/UI, tests, provider contract.
-- **Sensitive systems:** Schema, storage, provider metadata, tenant boundary.
-- **Allowed / forbidden:** Safe dev/test storage; no production mutation, token persistence without encryption review, or deleting client originals.
-- **Required checks / regression:** Build/type/lint/test; source CRUD and tenant isolation; WP-02 auth tests.
-- **Done/evidence:** Source metadata/actions and truthful state exercised with fixtures; architecture decision logged.
+- **Status:** complete (expanded from draft on 2026-10-28).
+- **Priority:** 3; depends on completed WP-02; blocks WP-04 snapshots and later source processing.
+- **Human approval required:** No for local development; yes before production backend/provider setup. **Data migration involved:** Additive new schema only; no existing product data.
+- **Purpose / why now / anchors:** R3; PRD-03–07, PRD-16–19; the audit found no database or source model. Source ownership and truthful status must precede ingestion.
+- **Minimum executable scope:** Adopt Convex for *nonsecret* organization/event/source metadata in an isolated anonymous **local development** deployment, not as an irrevocable sole backend. Add schema and authenticated functions for organization creation/list, event creation/list and source metadata create/list/rename/pause/remove. Every function derives identity from `ctx.auth`, enforces membership + event ownership, and fails closed. Google Docs/Sheets URLs may be validated as metadata but remain **not connected** until OAuth/sync exists. Add fixture-backed Convex function tests for success, role and cross-tenant denial. Document retention/deletion as unresolved release gate rather than claiming a policy.
+- **Out of scope / deferred:** Actual SAGE login/provider configuration (AMB-01), source content/credential storage, OAuth, uploads, live sync, snapshots (WP-04/05), production migration/deployment, full source UI; no live label or client-document deletion. Source metadata is not a connected source.
+- **Preconditions:** WP-02 commit and clean tree; local Convex target verified before backend command; no production endpoint or deploy key used.
+- **Likely files/systems:** `convex/schema.ts`, protected Convex functions/helper, `convex/_generated/`, `convex/*.test.ts`, package scripts/config, `.gitignore` for local state, this package/log.
+- **Sensitive systems:** Schema, auth/tenant enforcement, local backend config; no OAuth tokens stored.
+- **Allowed / forbidden:** `convex dev --once` against anonymous local deployment and fixture tests; no production push, credential logging, destructive migrations or token storage.
+- **Required checks:** Convex codegen/local push, typecheck, lint, tests for create/list/source actions and cross-tenant/role denial, build.
+- **Regression checks:** WP-01 page and WP-02 access tests; no changes to original PRD/shell baseline.
+- **Definition of done / evidence:** Durable local metadata schema/functions verified; all publicly callable functions fail without auth and enforce membership; source status honestly indicates not connected; commands, limitations, diff/commit and clean tree logged.
+- **Notes for future expansion:** WP-04 adds immutable snapshots; WP-05 must validate provider scopes/quotas and token storage before calling any source live. Real identity integration and production backend fit remain release gates. Return to executor automatically now.
 
 ## WP-04 — Upload intake and immutable snapshots
 
