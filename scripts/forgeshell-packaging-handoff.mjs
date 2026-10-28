@@ -31,6 +31,8 @@ const ARTIFACT_FILES = [
   "DESIGN_DIRECTION_BRIEF.md",
   "UI_REFINEMENT_PLAN.md",
   "POST_DESIGN_FUNCTIONAL_VALIDATION.md",
+  "RELEASE_READINESS_AUDIT.md",
+  "LOCAL_RELEASE_EVIDENCE.md",
   "FORGESHELL_FINAL_CLOSEOUT.md",
   "FORGESHELL_PACKAGING_CHOICE.md",
   "FORGESHELL_FIRST_RUN_REVIEW.md"
@@ -153,12 +155,13 @@ async function tryReadPackageJson(workspace) {
   }
 }
 
-function buildAppReadme({ displayName, folderName, packageJson, prdOneLiner }) {
+function buildAppReadme({ displayName, folderName, packageJson, prdOneLiner, localOperatorSetup }) {
   const scripts = packageJson?.scripts || {};
   const runLines = [];
   if (scripts.start) runLines.push("- `npm start` — start the app");
   if (scripts.dev) runLines.push("- `npm run dev` — development server");
   if (scripts.validate) runLines.push("- `npm run validate` — validation");
+  if (scripts["check:local"]) runLines.push("- `npm run check:local` — local typecheck, lint, tests, build, and repo safety");
   if (scripts.test) runLines.push("- `npm test` — tests");
   if (runLines.length === 0) {
     runLines.push("- See `package.json` → `scripts` for run and validation commands.");
@@ -174,19 +177,22 @@ function buildAppReadme({ displayName, folderName, packageJson, prdOneLiner }) {
 
 ## What this is
 
-${prdOneLiner || `${displayName} is the application delivered from your ForgeShell run.`}
+${prdOneLiner || (localOperatorSetup ? "A local single-operator event workspace for manually capturing source notes, reviewing proposed schedule fields, and exporting an explicitly approved run of show." : `${displayName} is the application delivered from your ForgeShell run.`)}
 
 This folder was prepared by **ForgeShell clean handoff** packaging. ForgeShell runtime docs were archived under \`${ARCHIVE_ROOT}/\` and shell control directories were removed from this tree.
 
 ## How to run
 
-1. Install dependencies: \`npm install\`
-${runLines.map((l) => `2. ${l}`).join("\n")}
+1. Install dependencies: \`npm ci\`.
+${localOperatorSetup ? "2. Follow `LOCAL_OPERATOR_SETUP.md` to start the anonymous local backend and configure operator access.\n" : ""}
+### Available commands
+${runLines.join("\n")}
 
 ## Setup and environment
 
 - Copy or create env files if your app expects them (for example \`.env.local\`) based on project conventions.
 ${ext ? `- ${ext}` : ""}
+${localOperatorSetup ? "- This is a **local single-operator/manual-text preview**, not a production release. Follow `LOCAL_OPERATOR_SETUP.md` for the anonymous loopback backend, access code, and explicit deferred integrations. Do not use real client data until retention/security policy is approved." : ""}
 
 ## Deployment / launch
 
@@ -234,6 +240,12 @@ async function main() {
     throw new Error(`applicationFolderName is reserved on Windows: ${folderName}`);
   }
 
+  const parent = path.dirname(workspace);
+  const target = path.join(parent, folderName);
+  if (fs.existsSync(target)) {
+    throw new Error(`Target folder already exists: ${target}`);
+  }
+
   await assertGitClean(workspace);
 
   const archiveDir = path.join(workspace, ARCHIVE_ROOT);
@@ -261,6 +273,7 @@ Keep this folder if you need traceability of the original shell run.
   }
 
   await moveIntoArchive(workspace, archiveDir, "agent_runs");
+  await moveIntoArchive(workspace, archiveDir, "raw_prd");
 
   for (const f of ARTIFACT_FILES) {
     // eslint-disable-next-line no-await-in-loop
@@ -284,7 +297,7 @@ Keep this folder if you need traceability of the original shell run.
   await archiveScriptsDirectory(workspace, archiveDir);
 
   const packageJson = await tryReadPackageJson(workspace);
-  const readmeBody = buildAppReadme({ displayName, folderName, packageJson, prdOneLiner });
+  const readmeBody = buildAppReadme({ displayName, folderName, packageJson, prdOneLiner, localOperatorSetup: fs.existsSync(path.join(workspace, "LOCAL_OPERATOR_SETUP.md")) });
 
   for (const dir of REMOVE_DIRS) {
     // eslint-disable-next-line no-await-in-loop
@@ -296,27 +309,22 @@ Keep this folder if you need traceability of the original shell run.
   const trimmedGitignore = `# Application .gitignore (post–ForgeShell handoff)
 .env.local
 .env.*.local
+.local-access-code
 
 .DS_Store
 
 node_modules/
 .next/
+.convex/
 dist/
 build/
 coverage/
 *.tsbuildinfo
 .vite/
 
-# ForgeShell packaging archive (kept intentionally)
-_forgeshell_archive/
+# ForgeShell packaging archive is retained in Git for traceability.
 `;
   await fsp.writeFile(path.join(workspace, ".gitignore"), trimmedGitignore, "utf8");
-
-  const parent = path.dirname(workspace);
-  const target = path.join(parent, folderName);
-  if (fs.existsSync(target)) {
-    throw new Error(`Target folder already exists: ${target}`);
-  }
 
   await fsp.rename(workspace, target);
 
