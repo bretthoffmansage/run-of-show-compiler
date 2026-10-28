@@ -38,4 +38,39 @@ export default defineSchema({
   })
     .index("by_source", ["sourceId"])
     .index("by_source_revision", ["sourceId", "revision"]),
+  masterProposals: defineTable({
+    eventId: v.id("events"),
+    snapshotId: v.id("sourceSnapshots"),
+    entryKey: v.string(),
+    fieldKey: v.string(),
+    proposedValue: v.string(),
+    snippet: v.string(),
+    origin: v.union(v.literal("source_exact"), v.literal("inferred")),
+    confidence: v.number(),
+    state: v.union(v.literal("pending"), v.literal("approved"), v.literal("rejected")),
+    createdAt: v.number(),
+    decidedBy: v.optional(v.string()),
+    decidedAt: v.optional(v.number()),
+  }).index("by_event", ["eventId"]),
+  masterRevisions: defineTable({
+    eventId: v.id("events"),
+    number: v.number(),
+    fields: v.array(v.object({
+      entryKey: v.string(),
+      fieldKey: v.string(),
+      value: v.string(),
+      origin: v.union(v.literal("source"), v.literal("operator")),
+      snapshotId: v.optional(v.id("sourceSnapshots")),
+    })),
+    createdAt: v.number(),
+    approvedBy: v.string(),
+  }).index("by_event", ["eventId"]),
+  masterDecisions: defineTable({
+    eventId: v.id("events"),
+    proposalId: v.optional(v.id("masterProposals")),
+    kind: v.union(v.literal("approve"), v.literal("reject"), v.literal("manual_edit")),
+    actor: v.string(),
+    at: v.number(),
+    masterRevisionId: v.optional(v.id("masterRevisions")),
+  }).index("by_event", ["eventId"]),
 });

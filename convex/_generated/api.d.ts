@@ -10,6 +10,7 @@
 
 import type * as access from "../access.js";
 import type * as events from "../events.js";
+import type * as master from "../master.js";
 import type * as organizations from "../organizations.js";
 import type * as snapshots from "../snapshots.js";
 import type * as sources from "../sources.js";
@@ -23,6 +24,7 @@ import type {
 declare const fullApi: ApiFromModules<{
   access: typeof access;
   events: typeof events;
+  master: typeof master;
   organizations: typeof organizations;
   snapshots: typeof snapshots;
   sources: typeof sources;

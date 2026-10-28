@@ -126,16 +126,20 @@ Packages run strictly in order. Only **WP-01** is ready now; later packages are 
 
 ## WP-08 — Conflict review and approval history
 
-- **Status:** draft; expand after WP-07.
-- **Purpose / why now:** Operator control defines the official master. R6; PRD-05, PRD-11–13, PRD-16, PRD-21.
-- **Scope candidate:** Proposal/change states, prior/proposed/source diff, conflict/low-confidence gates, accept/reject/batch actions, manual authorship, immutable approved revisions and audit records.
-- **Out of scope:** Automatic publishing or client-source edits.
-- **Preconditions:** Compilation proposals and tenant authorization.
-- **Likely files/systems:** Proposal/master schemas, server actions, review UI, tests.
-- **Sensitive systems:** Approval authority, history, data migration.
-- **Allowed / forbidden:** Safe dev data; never overwrite prior approved revision or auto-resolve guarded conflicts.
-- **Required checks / regression:** Build/type/lint/test; approval/rejection/audit/immutability/tenant tests; all prior domain tests.
-- **Done/evidence:** Operator can demonstrate review-to-approved lifecycle without silent promotion.
+- **Status:** complete (expanded from draft on 2026-10-28).
+- **Priority:** 8; depends on WP-07; blocks WP-09 official export/workspace.
+- **Human approval required:** No for local synthetic tests; every actual master change requires operator action. **Data migration:** Additive proposal/revision/decision tables on anonymous local backend only.
+- **Purpose / anchors:** R6; PRD-05, 11–13, 16, 21. Source-derived candidates must be separated from an approved master and reviewed by authorized operators.
+- **Minimum executable scope:** Internal single-field proposal intake tied to source snapshot, source/revision/snippet, confidence and entry key; authorized event read lists pending/decided proposals and latest approved master; operator may approve or reject **one** proposal; approval creates a new immutable master revision copying prior approved fields and replacing only the chosen field; rejection leaves master intact. Manual operator edit creates a separate operator-authored revision. Record decision actor/time. All proposals, including low-confidence/conflict, require explicit review. Tests prove cross-tenant/viewer denial, prior revision preservation, and no auto-approval when a new source proposal arrives.
+- **Out of scope/deferred:** Full conflict UI, batch actions, automated extraction-to-proposal job, per-field authority rules, rich source diff view, publication/export (WP-09), real identity/provider. These PRD-11–13 commitments remain scheduled or release-gated, not complete from this slice.
+- **Preconditions:** WP-07 clean; local anonymous backend target verified; fixture source/snapshot records only.
+- **Likely files/systems:** Additive `convex/schema.ts`, `convex/master.ts`, generated types/API, `convex/master.test.ts`, logs.
+- **Sensitive systems:** Approval authority, immutable revisions and tenant access; no production data.
+- **Allowed / forbidden:** Local synthetic mutations and auth tests; no unreviewed promotion, destructive history edit, public proposal write, or client-source write-back.
+- **Required checks:** Local Convex push, typecheck, lint, tests for proposal/provenance, approval/rejection/manual authorship/immutability, viewer and cross-tenant denial; build.
+- **Regression checks:** WP-01–07 tests and page; generated drift check, separate commit/clean tree.
+- **Done/evidence:** Reviewable proposal ledger and immutable master history verified with fixtures; no live UI/production claim; log/commit/clean.
+- **Future expansion:** WP-09 presents/export approved revision. Batch/conflict UX and real ingestion wiring remain explicit release work. Return to executor.
 
 ## WP-09 — Source/master workspace and approved export
 
