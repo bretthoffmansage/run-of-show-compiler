@@ -6,7 +6,7 @@ Packages run strictly in order. Only **WP-01** is ready now; later packages are 
 
 ## WP-01 — Minimal application and validation baseline
 
-- **Status:** ready
+- **Status:** complete
 - **Purpose / why now:** Establish an actual Next.js product entry point and repeatable checks before any tenant or provider work. R1; PRD-14, PRD-15, PRD-17.
 - **Scope:** Minimal Next.js/TypeScript app in this root, accessible placeholder page identifying the Run of Show Compiler and honestly stating that sources/master require setup; package scripts for build, type, lint and test; one small smoke test; no sample client data. Keep ForgeShell control files intact.
 - **Out of scope:** Auth, organizations/events CRUD, database, live integrations, AI, simulated populated master, full design pass.
