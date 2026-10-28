@@ -160,16 +160,21 @@ Packages run strictly in order. Only **WP-01** is ready now; later packages are 
 
 ## WP-10 — Operational hardening and release validation
 
-- **Status:** draft; expand after WP-09.
-- **Purpose / why now:** Differentiate local feature completeness from production readiness. R8; PRD-17–21 and all raw §12 acceptance criteria.
-- **Scope candidate:** Verify configured identity/Google/AI/backend/deployment as available, retries/observability, retention/deletion, rate limits and notification renewal; acceptance matrix against representative fixtures and actual provider where configured.
-- **Out of scope:** Claiming deploy or live timing without evidence; adding deferred features.
-- **Preconditions:** Prior package flow complete; credentials/environments confirmed before external or backend-affecting commands.
-- **Likely files/systems:** Deployment config, jobs, docs, tests, security checks.
-- **Sensitive systems:** Secrets, provider accounts, production data, retention.
-- **Allowed / forbidden:** Read-only inspection by default; no production mutation/reset or secret logging.
-- **Required checks / regression:** Build/type/lint/test; full acceptance matrix; configured live smoke and timing measurements only when safe/available.
-- **Done/evidence:** Explicit pass/fail/not-configured matrix, no fabricated production readiness, release blockers documented.
+- **Status:** needs_review; expanded from draft on 2026-10-28; local audit checkpoint complete, **package not complete** pending approved identity/environment input.
+- **Priority:** 10; depends on WP-09; blocks final execution audit and all later shell phases.
+- **Human approval required:** Yes for SAGE identity/provider/account choices, credentials, production cloud projects and official output target. **Data migration:** None for local audit; any production backend setup requires separate safe plan.
+- **Purpose / anchors:** R8; PRD-01–21 and raw §12 acceptance. Distinguish fixture-backed foundations from working internal operations product.
+- **Current safe slice:** Run full local regression/security checks; build an acceptance matrix with pass/partial/missing/not-configured evidence; inspect environment without disclosing secrets; identify exactly which external setup and product decisions block live acceptance. Preserve missing requirements instead of narrowing them out of MVP.
+- **Out of scope:** Auto-provisioning SAGE accounts, Google OAuth consent, production Convex/Vercel/GitHub or AI credentials; destructive data operations; claiming unmeasured freshness/deployment/accuracy.
+- **Preconditions:** WP-01–09 committed clean. No live identity/Google/AI/deployment available in repo.
+- **Likely files/systems:** Readiness audit, package status/run log, test/build commands; future implementation still needed for auth-wired app, upload decision, sync scheduling, real AI/review UI/export.
+- **Sensitive systems:** Any future secrets/backend/tenant data; read-only inspection now.
+- **Allowed / forbidden:** Local tests and static inspection; no production mutation, secret logging, remote creation or fabricated pass.
+- **Required checks:** `npm audit`, typecheck, lint, test, build and raw §12 matrix; live checks only after verified safe configuration.
+- **Regression checks:** Entire WP-01–09 test suite and route; Git clean at checkpoint.
+- **Definition of done:** Real MVP acceptance and configured environment evidence, or explicit user-authorized deferral of unmet requirements. Local matrix alone is **not** completion.
+- **Completion evidence:** Acceptance matrix, live auth/Google/AI/deployment checks when configured, operator decision on export/retention, log, separate closeout commit and clean tree. If unavailable, structured escalation and checkpoint only.
+- **Future:** Resume WP-10 from matrix upon Continue-ready. No final audit/hardening/fidelity/design until this package honestly completes.
 
 ## Explicit deferrals, exclusions and unresolved questions
 
