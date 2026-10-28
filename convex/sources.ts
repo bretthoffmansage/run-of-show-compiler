@@ -21,7 +21,7 @@ export const create = mutation({
     const name = args.name.trim();
     if (!name || name.length > 120) throw new Error("Invalid source name");
     const url = validGoogleUrl(args.url, args.provider);
-    return ctx.db.insert("sources", { organizationId: event.organizationId, eventId: args.eventId, name, provider: args.provider, url, state: "not_connected", createdBy: userId });
+    return ctx.db.insert("sources", { organizationId: event.organizationId, eventId: args.eventId, name, provider: args.provider, url, state: "not_connected", archived: false, createdBy: userId });
   },
 });
 
@@ -29,7 +29,7 @@ export const list = query({
   args: { eventId: v.id("events") },
   handler: async (ctx, { eventId }) => {
     await eventAccess(ctx, eventId, "read");
-    return ctx.db.query("sources").withIndex("by_event", q => q.eq("eventId", eventId)).collect();
+    return (await ctx.db.query("sources").withIndex("by_event", q => q.eq("eventId", eventId)).collect()).filter(s => !s.archived);
   },
 });
 
@@ -37,7 +37,7 @@ export const rename = mutation({
   args: { sourceId: v.id("sources"), name: v.string() },
   handler: async (ctx, { sourceId, name }) => {
     const source = await ctx.db.get(sourceId);
-    if (!source) throw new Error("Access denied");
+    if (!source || source.archived) throw new Error("Access denied");
     await eventAccess(ctx, source.eventId, "edit");
     const cleanName = name.trim();
     if (!cleanName || cleanName.length > 120) throw new Error("Invalid source name");
@@ -49,7 +49,7 @@ export const pause = mutation({
   args: { sourceId: v.id("sources"), paused: v.boolean() },
   handler: async (ctx, { sourceId, paused }) => {
     const source = await ctx.db.get(sourceId);
-    if (!source) throw new Error("Access denied");
+    if (!source || source.archived) throw new Error("Access denied");
     await eventAccess(ctx, source.eventId, "edit");
     await ctx.db.patch(sourceId, { state: paused ? "paused" : "not_connected" });
   },
@@ -59,8 +59,9 @@ export const remove = mutation({
   args: { sourceId: v.id("sources") },
   handler: async (ctx, { sourceId }) => {
     const source = await ctx.db.get(sourceId);
-    if (!source) throw new Error("Access denied");
+    if (!source || source.archived) throw new Error("Access denied");
     await eventAccess(ctx, source.eventId, "edit");
-    await ctx.db.delete(sourceId);
+    // Preserve revision history until an explicit retention/deletion policy is approved.
+    await ctx.db.patch(sourceId, { archived: true });
   },
 });

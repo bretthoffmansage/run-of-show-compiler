@@ -26,6 +26,16 @@ export default defineSchema({
     provider: v.union(v.literal("google_docs"), v.literal("google_sheets")),
     url: v.string(),
     state: v.union(v.literal("not_connected"), v.literal("paused")),
+    archived: v.optional(v.boolean()),
     createdBy: v.string(),
   }).index("by_event", ["eventId"]),
+  sourceSnapshots: defineTable({
+    sourceId: v.id("sources"),
+    revision: v.string(),
+    content: v.string(),
+    capturedAt: v.number(),
+    changedLines: v.number(),
+  })
+    .index("by_source", ["sourceId"])
+    .index("by_source_revision", ["sourceId", "revision"]),
 });

@@ -58,16 +58,20 @@ Packages run strictly in order. Only **WP-01** is ready now; later packages are 
 
 ## WP-04 — Upload intake and immutable snapshots
 
-- **Status:** draft; expand after WP-03.
-- **Purpose / why now:** Extraction needs stable revision references. R3–R4; PRD-05–08, PRD-16, PRD-19–20.
-- **Scope candidate:** Safe size/type-limited non-live upload path where feasible; immutable initial/later snapshots, revision identifiers, last-good fallback, source change log and diff, idempotency tests.
-- **Out of scope:** Universal parsing, live provider notifications, master compilation.
-- **Preconditions:** Durable source model and scoped storage.
-- **Likely files/systems:** Upload endpoint, storage, snapshot schema/functions, diff tests.
-- **Sensitive systems:** Client files, storage, schema, retention.
-- **Allowed / forbidden:** Test fixtures and bounded parsers; never execute macros/formulas/embedded code or log sensitive content.
-- **Required checks / regression:** Build/type/lint/test; duplicate revision, changed revision, inaccessible source/last-good tests; prior access checks.
-- **Done/evidence:** Immutable snapshot/diff behavior and actual supported formats/limits documented.
+- **Status:** complete (expanded from draft on 2026-10-28).
+- **Priority:** 4; depends on WP-03; blocks WP-05/06 revision-anchored ingestion/extraction.
+- **Human approval required:** No for local fixtures; yes before any real client file import. **Data migration:** Additive new snapshot schema only; local development data only.
+- **Purpose / anchors:** R4; PRD-05, 07–08, 16, 19–20. Stored source metadata now exists, but extraction needs immutable revision evidence and a last-good fallback.
+- **Minimum executable scope:** Local-only, **internal** fixture snapshot intake for an existing source (no public upload endpoint), with bounded UTF-8 text and explicit revision ID; at most one snapshot per source+revision; immutable content and timestamps; simple reviewable line-level diff/summary and source revision list. Authorized event viewers may read snapshots/diffs. A failed/unreachable source does not delete prior snapshot. Test duplicate, change, no access and last-good behavior. This makes revision mechanics real without ingesting client files or claiming a live connector.
+- **Out of scope / deferred:** DOCX/XLSX/CSV/PDF upload/parser and actual Google fetch, provider notifications/polling, AI, master proposals. Uploaded file support remains PRD-07 conditional work to revisit in WP-10 release validation or explicit post-MVP deferment with rationale; do not treat this snapshot slice as upload completion.
+- **Preconditions:** WP-03 committed clean; only isolated anonymous local Convex and synthetic test content. No external backend/data target.
+- **Likely files/systems:** `convex/schema.ts`, snapshot functions, pure diff utility and tests, generated Convex API/types.
+- **Sensitive systems:** Source content persistence and schema. Keep fixture text small and never log it; production retention/encryption/deletion policy is AMB-05 release gate.
+- **Allowed / forbidden:** Additive local schema, internal mutation, authorized read functions, tests; no public source-content writes, destructive cleanup, client file execution or production deployment.
+- **Required checks:** Convex local push/codegen, typecheck, lint, tests for initial/later snapshot, idempotency, immutable prior content, diff, unauthorized read and last-good on error; build.
+- **Regression checks:** WP-01 page, WP-02 access and WP-03 metadata tests; clean tree after separate commit.
+- **Done/evidence:** Snapshot/revision/diff flows verified with fixtures only; status still honest (`not_connected`); limits/deferrals logged, commit and clean tree.
+- **Future expansion:** WP-05 connects real provider revisions, WP-06 consumes provenance; upload implementation/gate remains visible under PRD-07. Return immediately to executor.
 
 ## WP-05 — Google connection and reconciliation slice
 
