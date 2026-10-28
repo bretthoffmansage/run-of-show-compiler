@@ -1,6 +1,16 @@
 import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
 
+export const sourceState = v.union(
+  v.literal("not_connected"),
+  v.literal("connected"),
+  v.literal("paused"),
+  v.literal("static"),
+  v.literal("needs_reauthorization"),
+  v.literal("access_removed"),
+  v.literal("error"),
+);
+
 export default defineSchema({
   organizations: defineTable({
     name: v.string(),
@@ -18,6 +28,7 @@ export default defineSchema({
     organizationId: v.id("organizations"),
     name: v.string(),
     archived: v.boolean(),
+    timeZone: v.optional(v.string()),
   }).index("by_org", ["organizationId"]),
   sources: defineTable({
     organizationId: v.id("organizations"),
@@ -25,9 +36,13 @@ export default defineSchema({
     name: v.string(),
     provider: v.union(v.literal("google_docs"), v.literal("google_sheets"), v.literal("manual")),
     url: v.string(),
-    state: v.union(v.literal("not_connected"), v.literal("paused"), v.literal("static")),
+    state: sourceState,
     archived: v.optional(v.boolean()),
     createdBy: v.string(),
+    lastCheckedAt: v.optional(v.number()),
+    lastSyncAt: v.optional(v.number()),
+    lastRevision: v.optional(v.string()),
+    lastError: v.optional(v.string()),
   }).index("by_event", ["eventId"]),
   sourceSnapshots: defineTable({
     sourceId: v.id("sources"),
@@ -38,6 +53,30 @@ export default defineSchema({
   })
     .index("by_source", ["sourceId"])
     .index("by_source_revision", ["sourceId", "revision"]),
+  googleConnections: defineTable({
+    accountEmail: v.string(),
+    encryptedRefreshToken: v.string(),
+    scopes: v.string(),
+    connectedBy: v.string(),
+    connectedAt: v.number(),
+    status: v.union(v.literal("active"), v.literal("revoked")),
+    lastRefreshAt: v.optional(v.number()),
+    lastError: v.optional(v.string()),
+  }).index("by_status", ["status"]),
+  extractionRuns: defineTable({
+    eventId: v.id("events"),
+    snapshotId: v.id("sourceSnapshots"),
+    status: v.union(v.literal("running"), v.literal("succeeded"), v.literal("failed")),
+    engine: v.union(v.literal("anthropic"), v.literal("fallback")),
+    model: v.optional(v.string()),
+    error: v.optional(v.string()),
+    startedAt: v.number(),
+    finishedAt: v.optional(v.number()),
+    itemCount: v.optional(v.number()),
+    proposalCount: v.optional(v.number()),
+  })
+    .index("by_event", ["eventId"])
+    .index("by_snapshot", ["snapshotId"]),
   masterProposals: defineTable({
     eventId: v.id("events"),
     snapshotId: v.id("sourceSnapshots"),

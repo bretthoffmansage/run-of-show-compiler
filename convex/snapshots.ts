@@ -1,5 +1,6 @@
 import { internalMutation, mutation, query } from "./_generated/server";
 import { v } from "convex/values";
+import { internal } from "./_generated/api";
 import { eventAccess } from "./access";
 import { diffText } from "../lib/snapshot-diff";
 
@@ -17,12 +18,15 @@ export const capture = internalMutation({
     const priorSameRevision = await ctx.db.query("sourceSnapshots").withIndex("by_source_revision", q => q.eq("sourceId", sourceId).eq("revision", cleanRevision)).unique();
     if (priorSameRevision) {
       if (priorSameRevision.content !== content) throw new Error("Revision content mismatch");
-      return { snapshotId: priorSameRevision._id, duplicate: true };
+      return { snapshotId: priorSameRevision._id, duplicate: true, changed: false };
     }
     const latest = await ctx.db.query("sourceSnapshots").withIndex("by_source", q => q.eq("sourceId", sourceId)).order("desc").first();
+    // A provider revision bump without content change (renames, comments)
+    // records no snapshot and triggers no re-extraction.
+    if (latest && latest.content === content) return { snapshotId: latest._id, duplicate: true, changed: false };
     const changedLines = latest ? diffText(latest.content, content).changedLines : content.split("\n").length;
     const snapshotId = await ctx.db.insert("sourceSnapshots", { sourceId, revision: cleanRevision, content, capturedAt: Date.now(), changedLines });
-    return { snapshotId, duplicate: false };
+    return { snapshotId, duplicate: false, changed: true };
   },
 });
 
@@ -34,7 +38,9 @@ export const captureManual = mutation({
     if (!source || source.archived || source.provider !== "manual") throw new Error("Access denied");
     await eventAccess(ctx, source.eventId, "edit");
     if (!content.trim() || new TextEncoder().encode(content).length > MAX_TEXT_BYTES) throw new Error("Invalid source content");
-    return ctx.db.insert("sourceSnapshots", { sourceId, revision: `manual:${crypto.randomUUID()}`, content, capturedAt: Date.now(), changedLines: content.split("\n").length });
+    const snapshotId = await ctx.db.insert("sourceSnapshots", { sourceId, revision: `manual:${crypto.randomUUID()}`, content, capturedAt: Date.now(), changedLines: content.split("\n").length });
+    await ctx.scheduler.runAfter(0, internal.extraction.runSnapshot, { snapshotId });
+    return snapshotId;
   },
 });
 

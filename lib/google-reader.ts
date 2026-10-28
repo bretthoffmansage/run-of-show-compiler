@@ -81,7 +81,8 @@ function sheetTitles(data: Record<string, unknown>): string[] {
   return titles as string[];
 }
 
-export async function readGoogleSource(args: { url: string; provider: GoogleProvider; accessToken: string; fetcher: Fetcher }) {
+/** Cheap change probe: Drive metadata only, no document content. */
+export async function readGoogleMetadata(args: { url: string; provider: GoogleProvider; accessToken: string; fetcher: Fetcher }) {
   const { url, provider, accessToken, fetcher } = args;
   const fileId = fileIdFromUrl(url, provider);
   if (!accessToken) throw new GoogleReadError("needs_reauthorization");
@@ -89,6 +90,13 @@ export async function readGoogleSource(args: { url: string; provider: GoogleProv
   const expectedMime = provider === "google_docs" ? "application/vnd.google-apps.document" : "application/vnd.google-apps.spreadsheet";
   if (meta.id !== fileId || meta.mimeType !== expectedMime || meta.trashed === true) throw new GoogleReadError("access_removed");
   if (typeof meta.version !== "string" || !meta.version) throw new GoogleReadError("parse_failed");
+  return { fileId, revision: `drive:${meta.version}`, modifiedTime: typeof meta.modifiedTime === "string" ? meta.modifiedTime : null };
+}
+
+export async function readGoogleSource(args: { url: string; provider: GoogleProvider; accessToken: string; fetcher: Fetcher }) {
+  const { provider, accessToken, fetcher } = args;
+  const meta = await readGoogleMetadata(args);
+  const fileId = meta.fileId;
 
   let raw: Record<string, unknown>;
   let text: string;
@@ -109,5 +117,5 @@ export async function readGoogleSource(args: { url: string; provider: GoogleProv
     }).join("\n\n");
   }
   if (new TextEncoder().encode(text).length > MAX_TEXT_BYTES) throw new GoogleReadError("too_large");
-  return { fileId, provider, revision: `drive:${meta.version}`, modifiedTime: typeof meta.modifiedTime === "string" ? meta.modifiedTime : null, text, raw };
+  return { fileId, provider, revision: meta.revision, modifiedTime: meta.modifiedTime, text, raw };
 }

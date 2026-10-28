@@ -7,10 +7,12 @@ import { diffText } from "../lib/snapshot-diff";
 
 const modules = import.meta.glob("./**/*.ts");
 
+process.env.ALLOWED_SIGNIN_DOMAINS = "test.sage";
+
 async function fixture() {
   const t = convexTest(schema, modules);
-  const alice = t.withIdentity({ subject: "alice", issuer: "https://identity.test", tokenIdentifier: "alice-token" });
-  const bob = t.withIdentity({ subject: "bob", issuer: "https://identity.test", tokenIdentifier: "bob-token" });
+  const alice = t.withIdentity({ subject: "alice", issuer: "https://identity.test", tokenIdentifier: "alice-token", email: "alice@test.sage" });
+  const bob = t.withIdentity({ subject: "bob", issuer: "https://identity.test", tokenIdentifier: "bob-token", email: "bob@test.sage" });
   const organizationId = await alice.mutation(api.organizations.create, { name: "SAGE" });
   const eventId = await alice.mutation(api.events.create, { organizationId, name: "Summit" });
   const sourceId = await alice.mutation(api.sources.create, { eventId, name: "Agenda", provider: "google_docs", url: "https://docs.google.com/document/d/abc/edit" });
@@ -23,7 +25,7 @@ describe("immutable source snapshots", () => {
     const first = await t.mutation(internal.snapshots.capture, { sourceId, revision: "r1", content: "Opening\nHost: Ava\nBreak" });
     expect(first.duplicate).toBe(false);
     const duplicate = await t.mutation(internal.snapshots.capture, { sourceId, revision: "r1", content: "Opening\nHost: Ava\nBreak" });
-    expect(duplicate).toEqual({ snapshotId: first.snapshotId, duplicate: true });
+    expect(duplicate).toEqual({ snapshotId: first.snapshotId, duplicate: true, changed: false });
     await expect(t.mutation(internal.snapshots.capture, { sourceId, revision: "r1", content: "different" })).rejects.toThrow("Revision content mismatch");
     const second = await t.mutation(internal.snapshots.capture, { sourceId, revision: "r2", content: "Opening\nHost: Bea\nBreak" });
     expect((await alice.query(api.snapshots.list, { sourceId })).map(s => s.revision)).toEqual(["r2", "r1"]);

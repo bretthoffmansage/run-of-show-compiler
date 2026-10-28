@@ -1,5 +1,6 @@
 import { mutation, query } from "./_generated/server";
 import { v } from "convex/values";
+import { internal } from "./_generated/api";
 import { eventAccess } from "./access";
 
 const provider = v.union(v.literal("google_docs"), v.literal("google_sheets"));
@@ -21,7 +22,9 @@ export const create = mutation({
     const name = args.name.trim();
     if (!name || name.length > 120) throw new Error("Invalid source name");
     const url = validGoogleUrl(args.url, args.provider);
-    return ctx.db.insert("sources", { organizationId: event.organizationId, eventId: args.eventId, name, provider: args.provider, url, state: "not_connected", archived: false, createdBy: userId });
+    const sourceId = await ctx.db.insert("sources", { organizationId: event.organizationId, eventId: args.eventId, name, provider: args.provider, url, state: "not_connected", archived: false, createdBy: userId });
+    await ctx.scheduler.runAfter(0, internal.sync.pollOne, { sourceId });
+    return sourceId;
   },
 });
 
@@ -43,6 +46,7 @@ export const createManualWithSnapshot = mutation({
     if (!cleanName || cleanName.length > 120 || !content.trim() || new TextEncoder().encode(content).length > 64 * 1024) throw new Error("Invalid source input");
     const sourceId = await ctx.db.insert("sources", { organizationId: event.organizationId, eventId, name: cleanName, provider: "manual", url: "", state: "static", archived: false, createdBy: userId });
     const snapshotId = await ctx.db.insert("sourceSnapshots", { sourceId, revision: `manual:${crypto.randomUUID()}`, content, capturedAt: Date.now(), changedLines: content.split("\n").length });
+    await ctx.scheduler.runAfter(0, internal.extraction.runSnapshot, { snapshotId });
     return { sourceId, snapshotId };
   },
 });
@@ -74,6 +78,7 @@ export const pause = mutation({
     if (!source || source.archived) throw new Error("Access denied");
     await eventAccess(ctx, source.eventId, "edit");
     await ctx.db.patch(sourceId, { state: paused ? "paused" : source.provider === "manual" ? "static" : "not_connected" });
+    if (!paused && source.provider !== "manual") await ctx.scheduler.runAfter(0, internal.sync.pollOne, { sourceId });
   },
 });
 

@@ -6,6 +6,8 @@ import schema from "./schema";
 
 const modules = import.meta.glob("./**/*.ts");
 
+process.env.ALLOWED_SIGNIN_DOMAINS = "test.sage";
+
 describe("protected event and source metadata", () => {
   it("fails closed for unauthenticated organization creation and listing", async () => {
     const t = convexTest(schema, modules);
@@ -15,8 +17,8 @@ describe("protected event and source metadata", () => {
 
   it("creates scoped organizations, events and explicitly unconnected source metadata", async () => {
     const t = convexTest(schema, modules);
-    const alice = t.withIdentity({ subject: "alice", issuer: "https://identity.test", tokenIdentifier: "alice-token" });
-    const bob = t.withIdentity({ subject: "bob", issuer: "https://identity.test", tokenIdentifier: "bob-token" });
+    const alice = t.withIdentity({ subject: "alice", issuer: "https://identity.test", tokenIdentifier: "alice-token", email: "alice@test.sage" });
+    const bob = t.withIdentity({ subject: "bob", issuer: "https://identity.test", tokenIdentifier: "bob-token", email: "bob@test.sage" });
     const org = await alice.mutation(api.organizations.create, { name: " SAGE " });
     expect(await alice.query(api.organizations.listMine, {})).toMatchObject([{ name: "SAGE" }]);
     expect(await bob.query(api.organizations.listMine, {})).toEqual([]);
@@ -40,8 +42,8 @@ describe("protected event and source metadata", () => {
 
   it("rejects untrusted URLs and enforces viewer read-only access", async () => {
     const t = convexTest(schema, modules);
-    const alice = t.withIdentity({ subject: "alice", issuer: "https://identity.test", tokenIdentifier: "alice-token" });
-    const bob = t.withIdentity({ subject: "bob", issuer: "https://identity.test", tokenIdentifier: "bob-token" });
+    const alice = t.withIdentity({ subject: "alice", issuer: "https://identity.test", tokenIdentifier: "alice-token", email: "alice@test.sage" });
+    const bob = t.withIdentity({ subject: "bob", issuer: "https://identity.test", tokenIdentifier: "bob-token", email: "bob@test.sage" });
     const org = await alice.mutation(api.organizations.create, { name: "SAGE" });
     const event = await alice.mutation(api.events.create, { organizationId: org, name: "Summit" });
     await expect(alice.mutation(api.sources.create, { eventId: event, name: "Bad", provider: "google_docs", url: "https://docs.google.com.evil.test/document/d/abc" })).rejects.toThrow("Invalid Google source URL");
