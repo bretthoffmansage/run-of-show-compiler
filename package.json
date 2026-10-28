@@ -7,7 +7,7 @@
     "build": "next build",
     "start": "next start",
     "typecheck": "tsc --noEmit",
-    "lint": "eslint app tests",
+    "lint": "eslint app lib tests",
     "test": "vitest run"
   },
   "dependencies": {

@@ -20,16 +20,24 @@ Packages run strictly in order. Only **WP-01** is ready now; later packages are 
 
 ## WP-02 — Identity and tenant boundary
 
-- **Status:** draft; expand only after WP-01.
-- **Purpose / why now:** All later data must have authenticated organization/event ownership. R2; PRD-01–03, PRD-19.
-- **Scope candidate:** Select a safe, testable identity/provider boundary; organization/event membership and server authorization; minimal create/select UX. If actual SAGE identity is unavailable, narrow to contracts/fixtures and explicit deployment gate rather than pretending auth.
-- **Out of scope:** Sources, sync, AI, export, production credential provisioning.
-- **Preconditions:** WP-01 clean; resolve only decisions needed for the slice (AMB-01).
-- **Likely files/systems:** Auth middleware/server functions, org/event models, routes, tests.
-- **Sensitive systems:** Auth, tenant access, persistence choice.
-- **Allowed / forbidden:** Narrow local implementation and automated isolation tests; never expose an unguarded production data path or write production data.
-- **Required checks / regression:** Build/type/lint/test and cross-tenant denial checks; WP-01 smoke route remains valid.
-- **Done/evidence:** Membership and server access behavior demonstrable; missing external provider setup explicit in log.
+- **Status:** complete (expanded from draft on 2026-10-28).
+- **Priority:** 2, next in strict sequence.
+- **Depends on / blocks:** Depends on completed WP-01; blocks WP-03 source ownership and all future server data access.
+- **Human approval required:** No for local code/contracts; yes before any real SAGE provider or production credential configuration (not in this slice).
+- **Data migration involved:** No. No database exists yet.
+- **Purpose / why now:** Establish the first enforceable tenant authorization contract before any durable client data exists. R2; PRD-01–03, PRD-19; current-state audit says identity and data model are absent.
+- **Minimum promise / scope:** Server-only typed principal, organization membership and event ownership access functions; deny by default when identity/membership missing; role-specific read/edit/admin decisions; an explicit server-side `identity not configured` gate. Test these against synthetic records for cross-tenant denial and role boundaries. The existing page remains an honest unconfigured preview. This is a foundational authorization slice, not complete sign-in or org/event CRUD.
+- **Out of scope / deferred:** Real SAGE identity provider and session verification (AMB-01), persistence decision/model (AMB-03; WP-03), organization/event create/select UI and CRUD (to follow alongside persistence and actual identity), sources, sync, AI, export, production credentials. These PRD-01–03 commitments remain **scheduled**, not counted complete by this package.
+- **Preconditions:** WP-01 committed and clean; no backend or production environment targeted.
+- **Likely files/systems:** `lib/tenant-access.ts`, `lib/identity-gate.ts`, `tests/tenant-access.test.ts`, package status/run log.
+- **Sensitive systems:** Authorization contract and tenant boundary; do not wire a fixture principal into public routes.
+- **Allowed actions:** Add pure server-only access functions and fixture tests; run local checks.
+- **Forbidden actions:** Public unauthenticated CRUD, fake production login, hard-coded operator identity in runtime, arbitrary provider choice, production data writes.
+- **Required checks:** Typecheck, lint, unit tests showing absent principal, non-member, wrong organization/event, viewer write denial, operator/admin boundaries; production build.
+- **Regression checks:** WP-01 home smoke test and static route build remain passing; no provider/data state altered.
+- **Definition of done:** A caller cannot read or mutate a tenant/event through the contract without explicit matching membership/role; unconfigured identity gate fails closed; all checks pass; this **does not** claim real authentication is finished.
+- **Completion evidence:** Separate expansion and execution logs, passing command results, diff/stat classification, package-specific commit, clean tree.
+- **Notes for future package expansion:** WP-03 must choose persistence and attach **verified** server principal/session to this boundary before exposing CRUD or source data; identity provider setup remains a release gate. Return to executor immediately after this expansion.
 
 ## WP-03 — Durable event/source model and source library
 
