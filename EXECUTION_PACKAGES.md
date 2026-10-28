@@ -75,16 +75,20 @@ Packages run strictly in order. Only **WP-01** is ready now; later packages are 
 
 ## WP-05 — Google connection and reconciliation slice
 
-- **Status:** draft; expand after WP-04.
-- **Purpose / why now:** Core live source requirement depends on access and revisions. R4/R8; PRD-07–08, PRD-18, PRD-20.
-- **Scope candidate:** OAuth/provider adapter and Docs/Sheets reads with least privilege, access/error states; polling/notification and renewal design with idempotent revision handling. If credentials are unavailable, implement/test contracts and record a live-acceptance gate, not a fake connected state.
-- **Out of scope:** Source write-back, Airtable, unsupported latency claims.
-- **Preconditions:** Tenant/auth/storage boundaries; validate AMB-02 and current provider/platform limits before choosing trigger design.
-- **Likely files/systems:** OAuth callbacks, provider adapter, scheduled jobs, secrets config, fixtures.
-- **Sensitive systems:** OAuth tokens, tenant callbacks, scheduled work.
-- **Allowed / forbidden:** Dev/test account only when explicitly safe; no passwords, browser tokens, broad scopes, or production resets.
-- **Required checks / regression:** Build/type/lint/test; adapter, retry/idempotency, token-handling and stale-state tests; prior snapshot/access tests; live checks only if configured.
-- **Done/evidence:** Accurate supported live path or clearly gated scaffold, latency/quota caveats and security review in log.
+- **Status:** complete (expanded from draft on 2026-10-28).
+- **Priority:** 5; depends on WP-04; blocks WP-06 extraction from Google content.
+- **Human approval required:** No for mock-read adapter; yes for real Google OAuth/client setup. **Data migration:** None.
+- **Purpose / anchors:** R4/R8; PRD-07–08, 18, 20. WP-04 can store revisions but cannot yet read Google documents.
+- **Minimum executable scope:** Server-use read-only Google Docs/Sheets adapter with injected access token and fetch, validated Google URL/file ID, Drive metadata/version check, bounded document text or sheet-value normalization, and typed error classification (authorization removed, rate limit/retry, provider failure, parse/size failure). Mocked API tests verify no token in output/error and no network calls to arbitrary URL. No runtime route, token store or source `connected` state is added.
+- **Out of scope/deferred:** OAuth flow/account model (AMB-02), token encryption/storage, actual provider access, scheduled polling and push/webhook receiver/renewal (R8/WP-10 release gate), Airtable, Google write-back, guaranteed one-/five-minute target. Keep PRD-08/18 unverified until configured.
+- **Preconditions:** WP-04 clean; no Google credentials or safe account currently available, so test only with mocked HTTP. Current API endpoints/scopes checked in official docs before implementation.
+- **Likely files/systems:** `lib/google-reader.ts`, tests, package log; no backend mutation.
+- **Sensitive systems:** OAuth bearer token and client document content; never log either or expose client-side code.
+- **Allowed / forbidden:** Pure adapter and mocked fetch tests; no real provider calls, passwords, token persistence, broad write scopes or webhook endpoint without verification.
+- **Required checks:** Typecheck, lint, tests for Docs/Sheets representation, version, permission/rate/error/size handling and token non-disclosure; build.
+- **Regression checks:** WP-01–04 tests, static route, clean tree.
+- **Done/evidence:** Read-only adapter works against mock official API shapes, integration still explicitly unconnected, no live timing claim; separate package commit/clean tree.
+- **Future expansion:** Wire approved OAuth and identity, durable secure tokens, polling/notifications and actual latency evidence only after setup. Return to executor now.
 
 ## WP-06 — Extraction contract and provenance
 

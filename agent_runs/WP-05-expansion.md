@@ -1,0 +1,8 @@
+# WP-05 expansion log
+
+- **Date/branch:** 2026-10-28, `forge/run-of-show-compiler`.
+- **Why now/evidence:** WP-04 (`2d95413`) delivered revision snapshots; PRD-07–08/18/20 and R4/R8 need Google reads. Audit and prior logs show no Google credentials, approved account, token storage or live provider. Official Google docs specify [Docs get](https://developers.google.com/workspace/docs/api/reference/rest/v1/documents/get), [Sheets values batchGet](https://developers.google.com/workspace/sheets/api/reference/rest/v4/spreadsheets.values/batchGet), [Drive file metadata](https://developers.google.com/workspace/drive/api/reference/rest/v3/files) and [notification channels](https://developers.google.com/workspace/drive/api/guides/push).
+- **Original breadth:** OAuth, live sync, notifications, polling, retries and full Docs/Sheets parsing. Not safe without AMB-02 account/scopes/credentials and production webhook target.
+- **Narrowing:** Rejected public connection path and token storage. Selected server-use read-only API adapter tested with injected mock responses. It is the first meaningful safe slice: provider response/error behavior can be validated without false live status. No account is connected or document fetched in this package.
+- **Deferred:** OAuth/session integration, token handling, provider watch/polling, webhook renewal, latency measurements, actual access validation, write-back. These remain explicit PRD-07–08/18/20 release gates in WP-10, not marked implemented.
+- **Safety/regression:** Token never leaves adapter output, tests use dummy values, no real Google calls or backend mutations; preserve all WP-01–04 checks. Expansion successful; return to executor and close WP-05 separately.
