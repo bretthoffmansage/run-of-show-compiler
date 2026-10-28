@@ -1,7 +1,8 @@
 import Link from "next/link";
-import { redirect } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import { api } from "../../../convex/_generated/api";
-import type { Doc, Id } from "../../../convex/_generated/dataModel";
+import type { Doc } from "../../../convex/_generated/dataModel";
+import { parseConvexId } from "../../../lib/convex-id";
 import { authorizedConvex } from "../../../lib/server-session";
 import { addManualSource, approveProposal, editMaster, rejectProposal } from "../../actions";
 import { Workspace, type WorkspaceEntry, type WorkspaceSource } from "../../components/Workspace";
@@ -9,7 +10,8 @@ import { Workspace, type WorkspaceEntry, type WorkspaceSource } from "../../comp
 export default async function EventWorkspace({ params }: { params: Promise<{ eventId: string }> }) {
   const client = await authorizedConvex();
   if (!client) redirect("/");
-  const eventId = (await params).eventId as Id<"events">;
+  const eventId = parseConvexId<"events">((await params).eventId);
+  if (!eventId) notFound();
   const event = await client.query(api.events.get, { eventId });
   const [sources, proposals, revision, history] = await Promise.all([
     client.query(api.sources.list, { eventId }),

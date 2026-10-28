@@ -1,12 +1,13 @@
 import { api } from "../../../../../convex/_generated/api";
-import type { Id } from "../../../../../convex/_generated/dataModel";
+import { parseConvexId } from "../../../../../lib/convex-id";
 import { formatApprovedMasterHtml } from "../../../../../lib/master-export";
 import { authorizedConvex } from "../../../../../lib/server-session";
 
 export async function GET(_request: Request, { params }: { params: Promise<{ eventId: string }> }) {
   const client = await authorizedConvex();
   if (!client) return new Response("Unauthorized", { status: 401 });
-  const eventId = (await params).eventId as Id<"events">;
+  const eventId = parseConvexId<"events">((await params).eventId);
+  if (!eventId) return new Response("Not found", { status: 404 });
   try {
     const [event, revision] = await Promise.all([
       client.query(api.events.get, { eventId }),
