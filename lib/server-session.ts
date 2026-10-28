@@ -1,20 +1,24 @@
 import "server-only";
-import { cookies } from "next/headers";
+import { auth, currentUser } from "@clerk/nextjs/server";
 import { ConvexHttpClient } from "convex/browser";
-import { verifyOperatorToken } from "./internal-auth";
 
-export const SESSION_COOKIE = "ros_operator";
-
-export async function sessionToken(): Promise<string | null> {
-  const token = (await cookies()).get(SESSION_COOKIE)?.value;
-  return await verifyOperatorToken(token) ? token! : null;
-}
-
+/**
+ * Convex client authorized as the signed-in Clerk user, or null when signed
+ * out / not configured. Authorization decisions live in Convex functions;
+ * this only forwards the verified identity token.
+ */
 export async function authorizedConvex(): Promise<ConvexHttpClient | null> {
-  const token = await sessionToken();
+  const { userId, getToken } = await auth();
   const url = process.env.NEXT_PUBLIC_CONVEX_URL;
-  if (!token || !url) return null;
+  if (!userId || !url) return null;
+  const token = await getToken({ template: "convex" });
+  if (!token) return null;
   const client = new ConvexHttpClient(url);
   client.setAuth(token);
   return client;
+}
+
+export async function signedInEmail(): Promise<string | null> {
+  const user = await currentUser();
+  return user?.primaryEmailAddress?.emailAddress ?? null;
 }

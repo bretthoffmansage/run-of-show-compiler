@@ -6,7 +6,6 @@ import {
   type Membership,
   type VerifiedPrincipal,
 } from "../lib/tenant-access";
-import { requireVerifiedSession } from "../lib/identity-gate";
 
 const alice: VerifiedPrincipal = { userId: "alice", verifiedBy: "test-adapter" };
 const admin: Membership = { userId: "alice", organizationId: "sage", role: "admin" };
@@ -15,8 +14,7 @@ const viewer: Membership = { ...admin, role: "viewer" };
 const sageEvent = { id: "event-1", organizationId: "sage" };
 
 describe("tenant authorization contract", () => {
-  it("fails closed until identity is configured", () => {
-    expect(() => requireVerifiedSession()).toThrow("not configured");
+  it("fails closed without a verified principal", () => {
     expect(() => requireOrganizationAccess(null, admin, "sage", "read")).toThrow(AccessDeniedError);
     expect(() => requireOrganizationAccess({ ...alice, verifiedBy: "" }, admin, "sage", "read")).toThrow(AccessDeniedError);
   });

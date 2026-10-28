@@ -1,13 +1,26 @@
-import type { QueryCtx, MutationCtx } from "./_generated/server";
+import type { QueryCtx, MutationCtx, ActionCtx } from "./_generated/server";
 import type { Id } from "./_generated/dataModel";
 import { requireEventAccess, requireOrganizationAccess, type Action, type Membership } from "../lib/tenant-access";
+import { emailAllowed } from "../lib/signin-allowlist";
 
 type Ctx = QueryCtx | MutationCtx;
 
-export async function identityId(ctx: Ctx): Promise<string> {
+export interface SignedInUser {
+  userId: string;
+  email: string;
+}
+
+/** Verified, allowlisted identity for any function kind, including actions. */
+export async function signedInUser(ctx: Ctx | ActionCtx): Promise<SignedInUser> {
   const identity = await ctx.auth.getUserIdentity();
   if (!identity?.tokenIdentifier) throw new Error("Access denied");
-  return identity.tokenIdentifier;
+  const email = typeof identity.email === "string" ? identity.email : null;
+  if (!emailAllowed(email)) throw new Error("Access denied");
+  return { userId: identity.tokenIdentifier, email: email! };
+}
+
+export async function identityId(ctx: Ctx | ActionCtx): Promise<string> {
+  return (await signedInUser(ctx)).userId;
 }
 
 export async function organizationAccess(ctx: Ctx, organizationId: Id<"organizations">, action: Action) {
