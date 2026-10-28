@@ -16,8 +16,9 @@ One-time setup, roughly 20 minutes. Afterwards every push to `main` deploys auto
    | `GOOGLE_CLIENT_SECRET` | from the Google section |
    | `GOOGLE_TOKEN_CIPHER_KEY` | output of `openssl rand -base64 32` |
    | `GOOGLE_EXPECTED_ACCOUNT` | `studio@poweredbysage.com` |
-   | `ANTHROPIC_API_KEY` | from console.anthropic.com → API keys |
-   | `EXTRACTION_MODEL` | *(optional)* defaults to `claude-sonnet-5-5` |
+   | `AI_GATEWAY_API_KEY` | Vercel AI Gateway key (`vck_…`); preferred transport |
+   | `ANTHROPIC_API_KEY` | *(alternative)* direct Anthropic key, used when no gateway key |
+   | `EXTRACTION_MODEL` | *(optional)* gateway slug `anthropic/claude-sonnet-5.5` (default) or `claude-sonnet-5-5` on the direct route |
 4. **Settings → Deploy keys** → generate a production deploy key (used as `CONVEX_DEPLOY_KEY` on Vercel).
 
 ## 2. Clerk (sign-in)
@@ -64,4 +65,5 @@ One-time setup, roughly 20 minutes. Afterwards every push to `main` deploys auto
 - **"Wrong Google account" when connecting** → consent was completed with a personal account; redo as studio@.
 - **Google did not return a refresh token** → the grant already existed: remove the app at myaccount.google.com/permissions (as studio@) and connect again.
 - **Sources stuck "Waiting for Google connection"** → no active connection in Settings.
-- **Extraction says fallback parser** → `ANTHROPIC_API_KEY` missing on the **Convex** deployment (not Vercel).
+- **Extraction says fallback parser** → `AI_GATEWAY_API_KEY` (or `ANTHROPIC_API_KEY`) missing on the **Convex** deployment (not Vercel).
+- **Gateway 401s** → the generic 401 covers a wrong key, header, or route equally; confirm the key, `Bearer` auth, and that the base URL is `https://ai-gateway.vercel.sh/v1` with the model as a provider-prefixed slug.

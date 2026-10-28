@@ -2,10 +2,33 @@ import { v } from "convex/values";
 import { internalAction, internalMutation, internalQuery, query } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { eventAccess, signedInUser } from "./access";
-import { extractFromExcerpt, type ExtractionOutput } from "../lib/extraction";
+import { extractFromExcerpt, type ExtractionOutput, type ModelAdapter } from "../lib/extraction";
 import { anthropicAdapter, DEFAULT_EXTRACTION_MODEL } from "../lib/anthropic-extraction";
+import { DEFAULT_GATEWAY_MODEL, gatewayAdapter } from "../lib/gateway-extraction";
 import { fallbackAdapter } from "../lib/fallback-parser";
 import { chunkByLines } from "../lib/chunk-text";
+
+type Engine = "gateway" | "anthropic" | "fallback";
+
+/**
+ * Transport preference: the Vercel AI Gateway when its key is configured
+ * (read under AI_GATEWAY_API_KEY), else the direct Anthropic API, else the
+ * deterministic fallback parser.
+ */
+function selectEngine(): { engine: Engine; model: string; adapter: ModelAdapter } {
+  const gatewayKey = process.env.AI_GATEWAY_API_KEY;
+  const anthropicKey = process.env.ANTHROPIC_API_KEY;
+  const configuredModel = process.env.EXTRACTION_MODEL?.trim();
+  if (gatewayKey) {
+    const model = configuredModel || DEFAULT_GATEWAY_MODEL;
+    return { engine: "gateway", model, adapter: gatewayAdapter({ apiKey: gatewayKey, model }) };
+  }
+  if (anthropicKey) {
+    const model = configuredModel || DEFAULT_EXTRACTION_MODEL;
+    return { engine: "anthropic", model, adapter: anthropicAdapter({ apiKey: anthropicKey, model }) };
+  }
+  return { engine: "fallback", model: "deterministic-line-parser", adapter: fallbackAdapter() };
+}
 
 export const snapshotContext = internalQuery({
   args: { snapshotId: v.id("sourceSnapshots") },
@@ -27,7 +50,7 @@ export const startRun = internalMutation({
   args: {
     eventId: v.id("events"),
     snapshotId: v.id("sourceSnapshots"),
-    engine: v.union(v.literal("anthropic"), v.literal("fallback")),
+    engine: v.union(v.literal("gateway"), v.literal("anthropic"), v.literal("fallback")),
     model: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
@@ -58,11 +81,8 @@ export const engine = query({
   args: {},
   handler: async (ctx) => {
     await signedInUser(ctx);
-    const aiConfigured = Boolean(process.env.ANTHROPIC_API_KEY);
-    return {
-      aiConfigured,
-      model: aiConfigured ? (process.env.EXTRACTION_MODEL?.trim() || DEFAULT_EXTRACTION_MODEL) : "deterministic-line-parser",
-    };
+    const { engine, model } = selectEngine();
+    return { aiConfigured: engine !== "fallback", engine, model };
   },
 });
 
@@ -85,13 +105,10 @@ export const runSnapshot = internalAction({
   handler: async (ctx, { snapshotId }) => {
     const context = await ctx.runQuery(internal.extraction.snapshotContext, { snapshotId });
     if (!context || context.archived) return;
-    const apiKey = process.env.ANTHROPIC_API_KEY;
-    const engine = apiKey ? "anthropic" as const : "fallback" as const;
-    const model = apiKey ? (process.env.EXTRACTION_MODEL?.trim() || DEFAULT_EXTRACTION_MODEL) : "deterministic-line-parser";
+    const { engine, model, adapter } = selectEngine();
     const runId = await ctx.runMutation(internal.extraction.startRun, { eventId: context.eventId, snapshotId, engine, model });
     if (!runId) return;
     try {
-      const adapter = apiKey ? anthropicAdapter({ apiKey, model }) : fallbackAdapter();
       const items: ExtractionOutput["items"] = [];
       for (const chunk of chunkByLines(context.content)) {
         const result = await extractFromExcerpt({ sourceId: context.sourceId, revision: context.revision, text: chunk }, adapter);

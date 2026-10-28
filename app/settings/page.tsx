@@ -47,9 +47,9 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
         <p className="eyebrow">02 / EXTRACTION</p><h2 id="ai-title">AI extraction</h2>
         {engine.aiConfigured
           ? <p className="muted">Claude extraction is active (model: {engine.model}). Every extracted field keeps a verbatim source snippet and must be approved before it enters the master.</p>
-          : <p className="muted">No ANTHROPIC_API_KEY is configured on the Convex deployment, so the deterministic line parser is in use. Set the key to enable AI extraction for arbitrary document formats.</p>}
+          : <p className="muted">No AI_GATEWAY_API_KEY (or ANTHROPIC_API_KEY) is configured on the Convex deployment, so the deterministic line parser is in use. Set a key to enable AI extraction for arbitrary document formats.</p>}
         <dl className="settings-facts">
-          <div><dt>Engine</dt><dd>{engine.aiConfigured ? "Claude (Anthropic API)" : "Deterministic line parser"}</dd></div>
+          <div><dt>Engine</dt><dd>{engine.engine === "gateway" ? "Claude via Vercel AI Gateway" : engine.engine === "anthropic" ? "Claude (Anthropic API)" : "Deterministic line parser"}</dd></div>
           <div><dt>Model</dt><dd>{engine.model}</dd></div>
           <div><dt>Signed in as</dt><dd>{email ?? "—"}</dd></div>
         </dl>

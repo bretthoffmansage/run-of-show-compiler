@@ -8,6 +8,7 @@ const modules = import.meta.glob("./**/*.ts");
 
 process.env.ALLOWED_SIGNIN_DOMAINS = "test.sage";
 delete process.env.ANTHROPIC_API_KEY;
+delete process.env.AI_GATEWAY_API_KEY;
 
 describe("single-operator manual source flow", () => {
   it("captures a static source, proposes via scheduled extraction, and gates decisions", async () => {

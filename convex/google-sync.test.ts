@@ -13,6 +13,7 @@ process.env.GOOGLE_CLIENT_ID = "client-id.apps.googleusercontent.com";
 process.env.GOOGLE_CLIENT_SECRET = "client-secret";
 process.env.GOOGLE_TOKEN_CIPHER_KEY = CIPHER_KEY;
 delete process.env.ANTHROPIC_API_KEY;
+delete process.env.AI_GATEWAY_API_KEY;
 
 const DOC_URL = "https://docs.google.com/document/d/abc123/edit";
 

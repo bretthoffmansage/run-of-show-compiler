@@ -7,10 +7,10 @@ Internal SAGE operations tool that connects an event's client-owned source docum
 1. Work is organized **Organization → Event**. Each event owns its sources, snapshots, proposals, and approved master.
 2. Live sources are read through one dedicated Google account (studio@poweredbysage.com) connected once in **Settings**; clients simply share their documents with that account. Its OAuth refresh token is stored sealed (AES-256-GCM) server-side in Convex and never reaches the browser.
 3. A Convex cron reconciles every live source against Google every 2 minutes (cheap metadata probe; full read only when the file's revision changed). Every change is stored as an immutable snapshot with revision metadata.
-4. Changed snapshots run through Claude-powered extraction (`lib/anthropic-extraction.ts` → validated by `lib/extraction.ts`). Every extracted field carries a verbatim source snippet; output that cannot be traced to the source text is rejected. Source documents are treated strictly as data — embedded instructions are never followed.
+4. Changed snapshots run through Claude-powered extraction — via the Vercel AI Gateway's OpenAI-compatible route when `AI_GATEWAY_API_KEY` is set (`lib/gateway-extraction.ts`; streaming, provider-prefixed model slugs like `anthropic/claude-sonnet-5.5`), else the direct Anthropic API (`lib/anthropic-extraction.ts`) — always validated by `lib/extraction.ts`. Every extracted field carries a verbatim source snippet; output that cannot be traced to the source text is rejected. Source documents are treated strictly as data — embedded instructions are never followed.
 5. Extraction results become **pending proposals**. Nothing enters the approved master without operator approval; conflicting values must be decided individually. Every approval creates an immutable master revision with full audit history, exportable as HTML.
 
-**Stack:** Next.js (App Router) on Vercel · Convex (data, crons, actions) · Clerk (Google SSO) · Anthropic API (extraction).
+**Stack:** Next.js (App Router) on Vercel · Convex (data, crons, actions) · Clerk (Google SSO) · Claude via Vercel AI Gateway (extraction).
 
 ## Local development
 
@@ -20,7 +20,9 @@ npx convex dev          # terminal 1: local Convex backend (anonymous, loopback)
 npm run dev             # terminal 2: Next.js on http://localhost:3000
 ```
 
-Create `.env.local` from `.env.example` (Clerk dev-instance keys + the Convex URL printed by `convex dev`). Set the Convex-side variables with `npx convex env set NAME value` — at minimum `CLERK_JWT_ISSUER_DOMAIN` and an allowlist (`ALLOWED_SIGNIN_DOMAINS` / `ALLOWED_SIGNIN_EMAILS`). Without `ANTHROPIC_API_KEY`, extraction falls back to a deterministic `YYYY-MM-DD HH:mm Title` line parser; without Google credentials, live sources show "waiting for Google connection" but manual sources work fully.
+Create `.env.local` from `.env.example` (Clerk dev-instance keys + the Convex URL printed by `convex dev`). Set the Convex-side variables with `npx convex env set NAME value` — at minimum `CLERK_JWT_ISSUER_DOMAIN` and an allowlist (`ALLOWED_SIGNIN_DOMAINS` / `ALLOWED_SIGNIN_EMAILS`). Without `AI_GATEWAY_API_KEY` (or `ANTHROPIC_API_KEY`), extraction falls back to a deterministic `YYYY-MM-DD HH:mm Title` line parser; without Google credentials, live sources show "waiting for Google connection" but manual sources work fully.
+
+**Current deployment posture:** the live Vercel site intentionally runs against the Convex **dev** deployment (`perfect-wombat-643`) while the product is tuned; the provisioned production deployment (`friendly-greyhound-87`) is fully configured and idle. To cut over, generate a production deploy key and swap Vercel's `CONVEX_DEPLOY_KEY` and `NEXT_PUBLIC_CONVEX_URL`.
 
 ## Validation
 

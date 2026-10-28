@@ -67,7 +67,7 @@ export default defineSchema({
     eventId: v.id("events"),
     snapshotId: v.id("sourceSnapshots"),
     status: v.union(v.literal("running"), v.literal("succeeded"), v.literal("failed")),
-    engine: v.union(v.literal("anthropic"), v.literal("fallback")),
+    engine: v.union(v.literal("gateway"), v.literal("anthropic"), v.literal("fallback")),
     model: v.optional(v.string()),
     error: v.optional(v.string()),
     startedAt: v.number(),
