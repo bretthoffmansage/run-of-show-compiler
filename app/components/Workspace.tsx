@@ -14,6 +14,7 @@ export interface WorkspaceSource {
 
 export interface WorkspaceEntry {
   id: string;
+  date?: string | null;
   time: string | null;
   title: string;
   sourceName: string | null;
@@ -54,7 +55,7 @@ export function Workspace({ sources, entries }: { sources: WorkspaceSource[]; en
         <div className="pane-heading"><span className="eyebrow">02 / OUTPUT</span><h2 id="master-title">Master run of show</h2></div>
         {entries.length ? <div className="master-list">
           {entries.map(entry => <article key={entry.id} className="master-entry">
-            <div className="entry-top"><time>{entry.time ?? "Time unresolved"}</time><span className="change-badge">{entry.changeState.replaceAll("_", " ")}</span></div>
+            <div className="entry-top"><time>{entry.date ? `${entry.date} · ` : ""}{entry.time ?? "Time unresolved"}</time><span className="change-badge">{entry.changeState.replaceAll("_", " ")}</span></div>
             <h3>{entry.title}</h3>
             {entry.details && <p>{entry.details}</p>}
             <p className="provenance">Source: {entry.sourceName ?? "Operator"}{entry.sourceRevision ? ` · Revision ${entry.sourceRevision}` : ""}</p>

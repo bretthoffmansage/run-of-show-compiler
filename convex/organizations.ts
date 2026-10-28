@@ -24,6 +24,14 @@ export const listMine = query({
   },
 });
 
+export const get = query({
+  args: { organizationId: v.id("organizations") },
+  handler: async (ctx, { organizationId }) => {
+    const { organization } = await organizationAccess(ctx, organizationId, "read");
+    return organization;
+  },
+});
+
 export const rename = mutation({
   args: { organizationId: v.id("organizations"), name: v.string() },
   handler: async (ctx, { organizationId, name }) => {

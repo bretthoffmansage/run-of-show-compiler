@@ -24,3 +24,11 @@ No built feature appears **misplaced** relative to the approved local target. Ma
 ## Bounded uplift decision
 
 Within the approved local scope, improve (1) visible organization context, (2) date-aware approved entry display/order, and (3) readable immutable revision/decision history. Do **not** use Phase E to implement Google, AI, uploads, cloud, multi-user SSO, full persistent rules or production output. Re-run validation and update this audit with post-uplift classification. Phase F handles design polish separately.
+
+## Post-uplift re-audit — 2026-10-28
+
+- **PRD-03 context:** **Aligned for local target.** The protected event route now fetches the authorized organization and displays its name above the event. Cross-tenant organization lookup is tested.
+- **PRD-10 chronology:** **Improved partial.** Approved entries now display explicit dates and sort by date/time; missing times remain labeled unresolved and sort after timed entries. Full zone/DST/day rules and cross-source matching remain deferred.
+- **PRD-12/16 history:** **Aligned for local target.** The event route now exposes decision actor/time/value and expandable immutable master revisions with fields, instead of only a count. It remains a single-operator audit trail, not SAGE team history.
+- **Validation:** `npm run check:local` passed (14 test files/35 tests, typecheck, lint, build). Anonymous-loopback synthetic QA event showed organization context, date and revision history; approved export still returned 200. No real client content or production environment used.
+- **Residual classifications unchanged:** Google/AI/uploads/cloud/SSO/production retention and official export are **deferred** by operator, not implemented. Original reference images and sample inputs still absent. Phase F may refine UI composition without masking these gaps.

@@ -12,6 +12,8 @@ describe("single-operator manual source flow", () => {
     const operator = t.withIdentity({ subject: "internal-operator", issuer: "http://localhost:3000", tokenIdentifier: "operator" });
     const outsider = t.withIdentity({ subject: "outsider", issuer: "http://localhost:3000", tokenIdentifier: "outsider" });
     const organizationId = await operator.mutation(api.organizations.create, { name: "SAGE" });
+    expect((await operator.query(api.organizations.get, { organizationId })).name).toBe("SAGE");
+    await expect(outsider.query(api.organizations.get, { organizationId })).rejects.toThrow("Access denied");
     const eventId = await operator.mutation(api.events.create, { organizationId, name: "Summit" });
     const { sourceId, snapshotId } = await operator.mutation(api.sources.createManualWithSnapshot, { eventId, name: "Working notes", content: "2026-11-03 09:00 Opening\nSession without time" });
     expect((await operator.query(api.sources.list, { eventId }))[0]).toMatchObject({ _id: sourceId, provider: "manual", state: "static" });

@@ -1,0 +1,3 @@
+# Phase E — bounded fidelity uplift
+
+Raw §§6–8 / PRD-03, 10, 12, 16 identified thin organization context, date display/order and hidden history within the approved local scope. Added authorized organization lookup/context, date-aware approved entries and read-only decision/revision history. `POST_BUILD_FIDELITY_AUDIT.md` records before/after classifications and continued deferrals. Validation: `npm run check:local` passed (14 files/35 tests); anonymous-loopback HTTP smoke showed context/date/history and approved export. No real data, production or provider access. Commit as one Phase E unit; verify clean tree before Phase F.
