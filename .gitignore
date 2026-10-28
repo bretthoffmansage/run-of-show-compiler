@@ -15,3 +15,4 @@ coverage/
 .vite/
 
 # ForgeShell packaging archive is retained in Git for traceability.
+.vercel
