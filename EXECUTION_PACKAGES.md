@@ -92,16 +92,20 @@ Packages run strictly in order. Only **WP-01** is ready now; later packages are 
 
 ## WP-06 — Extraction contract and provenance
 
-- **Status:** draft; expand after WP-04/05 source revision path.
-- **Purpose / why now:** Normalize data safely before merge. R5; PRD-09, PRD-19, PRD-21.
-- **Scope candidate:** Server-only provider-agnostic AI interface, schema validation, minimum excerpts, source/revision per-field references, original labels/additional details, model/version/timestamp; fixture-based prompt-injection tests.
-- **Out of scope:** Autonomous approval, unrestricted tool use, claiming model accuracy without representative tests.
-- **Preconditions:** Snapshot/revision contract; provider credentials optional via fixture mode.
-- **Likely files/systems:** Extraction service, schema, jobs, fixture corpus/tests.
-- **Sensitive systems:** Model prompts, client content, secrets, persistence.
-- **Allowed / forbidden:** Bounded dev fixtures; never let document text alter app instructions, permissions, tools or logs.
-- **Required checks / regression:** Build/type/lint/test; malicious text, invalid schema, provenance and missing-detail tests; earlier source/access tests.
-- **Done/evidence:** Structured extraction with complete field references and security caveats logged.
+- **Status:** complete (expanded from draft on 2026-10-28).
+- **Priority:** 6; depends on WP-04/05; blocks WP-07 compilation.
+- **Human approval required:** No for local model-contract tests; yes before real AI provider/credential setup. **Data migration:** None in this slice.
+- **Purpose / anchors:** R5; PRD-09, 19, 21. Source text and revision ID now have local contracts; normalized items require strict provenance before merge.
+- **Minimum executable scope:** Provider-agnostic server-use extraction interface over one bounded source snapshot excerpt. Strict schema for schedule candidate fields, source-exact vs inferred origin, confidence, original labels and additional details. Validate every populated field's source/revision/snippet; reject exact claims absent from input; do not provide tools/secrets to model adapter. Test with synthetic schedule and injection text. Persisting extracted records is deferred until WP-07/08 domain shape is settled.
+- **Out of scope/deferred:** Real AI provider or prompt guarantee, full format parsing, database persistence/jobs, automatic approval, actual customer accuracy claims. Provider setup stays R8/WP-10 release gate.
+- **Preconditions:** WP-05 clean, synthetic source text only; no provider credentials.
+- **Likely files/systems:** `lib/extraction.ts`, schema dependency, `tests/extraction.test.ts`, package log.
+- **Sensitive systems:** Client text/prompt boundary and model output; never give source instructions authority or expose secrets.
+- **Allowed / forbidden:** Local fixture adapter, schema validation and tests; no external model call or tool execution.
+- **Required checks:** Typecheck, lint, tests for valid fields, missing provenance, hallucinated exact snippet, prompt-injection content, invalid schema; build.
+- **Regression checks:** WP-01–05 tests and route; clean tree after separate commit.
+- **Done/evidence:** Bounded validated extraction contract proven by fixtures with explicit non-production limitations; commit/log/clean tree.
+- **Future expansion:** WP-07 uses validated candidates; WP-08 persists proposals. Real AI integration and representative accuracy validation remain release gates. Return to executor.
 
 ## WP-07 — Timeline, matching and rules
 
