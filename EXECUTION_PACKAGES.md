@@ -143,16 +143,20 @@ Packages run strictly in order. Only **WP-01** is ready now; later packages are 
 
 ## WP-09 — Source/master workspace and approved export
 
-- **Status:** draft; expand after WP-08.
-- **Purpose / why now:** Present the real review flow and produce an operator-selected artifact. R7; PRD-12, PRD-14–15, PRD-21.
-- **Scope candidate:** Accessible responsive source-tabs/master two-pane workspace, provenance inspection and practical downloadable approved-revision export; select format using current operational context (AMB-04). Google Doc write-back remains gated unless safe scopes/recovery are established.
-- **Out of scope:** Unapproved publication, unrelated EventGFX features, full multiuser editor.
-- **Preconditions:** Real source/master domain flow; source visuals only as PRD text until actual images available.
-- **Likely files/systems:** Workspace components/styles, export service, accessibility tests.
-- **Sensitive systems:** Exported client content, approvals.
-- **Allowed / forbidden:** Render authorized records; never export an unapproved revision as official.
-- **Required checks / regression:** Build/type/lint/test; keyboard/responsive and export/revision tests; prior approval/access checks.
-- **Done/evidence:** Source vs master clear; approved export verified; limitations logged.
+- **Status:** complete (expanded from draft on 2026-10-28).
+- **Priority:** 9; depends on WP-08; blocks WP-10 operational validation.
+- **Human approval required:** No for local component/export scaffold; yes for selecting official production output target (AMB-04). **Data migration:** None.
+- **Purpose / anchors:** R7; PRD-12, 14–15, 21. A durable approved revision now exists in local backend functions; the UI/export boundary should be legible without pretending live sign-in.
+- **Minimum executable scope:** Accessible responsive source/master **presentational** workspace component with source tabs, source metadata/freshness, master entries/provenance/change badges, and review controls represented as disabled/unavailable until an authenticated action is wired; use it on the existing unconfigured page with no fabricated client event data. Add a server-use print-ready HTML export formatter accepting only a typed approved master revision (not pending proposals), with escaped content and tests. This is a local proof of layout and export format, not production download endpoint.
+- **Out of scope/deferred:** Real Convex/identity-wired interactive review, DOCX/XLSX export and direct Google Doc write-back (AMB-04), full history/rules UI, client-side file download, visual pixel fidelity without images. These remain PRD-12/14/15 release work for WP-10/Phase E/F or explicit post-MVP decision.
+- **Preconditions:** WP-08 committed/clean; no approved identity provider configured; visual references described in raw PRD only.
+- **Likely files/systems:** `app/page.tsx`, `app/styles.css`, `app/components/Workspace.tsx`, `lib/master-export.ts`, tests.
+- **Sensitive systems:** Exported client content; escape data, never label pending proposal as official.
+- **Allowed / forbidden:** Pure rendering/formatting fixture tests; no unauthenticated data route, fabricated connected source or external write.
+- **Required checks:** Build/type/lint/test, route smoke, component/source-master distinction, escaping and approved-only export tests.
+- **Regression checks:** WP-01–08 tests, clean separate commit.
+- **Done/evidence:** Presentational workspace and approved-only HTML formatter verified, honest setup state, limitations and unfulfilled export target logged.
+- **Future expansion:** WP-10 requires actual SAGE identity, Google OAuth and environment choices for live UI/deployment; Phase E/F can refine fidelity/design only after functional gates. Return to executor.
 
 ## WP-10 — Operational hardening and release validation
 

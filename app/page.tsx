@@ -1,3 +1,5 @@
+import { Workspace } from "./components/Workspace";
+
 export default function Home() {
   return (
     <main className="shell">
@@ -22,16 +24,7 @@ export default function Home() {
           <h1 id="page-title">Run of Show Compiler</h1>
           <p>Bring event source documents into one reviewable timeline. Keep every proposed detail linked to its origin before an operator approves the official master.</p>
         </div>
-        <div className="panes">
-          <section className="pane" aria-labelledby="sources-title">
-            <div className="pane-heading"><span className="eyebrow">01 / INPUTS</span><h2 id="sources-title">Sources</h2></div>
-            <div className="empty"><span className="empty-mark" aria-hidden="true">↗</span><h3>No sources connected</h3><p>Google Docs and Sheets connections will become available after identity and provider setup. Nothing here is currently live or syncing.</p></div>
-          </section>
-          <section className="pane" aria-labelledby="master-title">
-            <div className="pane-heading"><span className="eyebrow">02 / OUTPUT</span><h2 id="master-title">Master run of show</h2></div>
-            <div className="empty"><span className="empty-mark" aria-hidden="true">≡</span><h3>No master revision</h3><p>A chronological draft will appear after sources are connected and processed. No event details have been generated or approved.</p></div>
-          </section>
-        </div>
+        <Workspace sources={[]} entries={[]} />
         <footer>Foundation preview only · Sign-in, event data, compilation, review, and export are not implemented.</footer>
       </section>
     </main>
