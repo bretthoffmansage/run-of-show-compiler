@@ -10,7 +10,8 @@
     "lint": "eslint app lib tests convex --ignore-pattern 'convex/_generated/**'",
     "test": "vitest run",
     "setup:local-access": "node scripts/setup-local-access.mjs",
-    "configure:local-convex-auth": "node scripts/configure-local-convex-auth.mjs"
+    "configure:local-convex-auth": "node scripts/configure-local-convex-auth.mjs",
+    "check:local": "node scripts/check-repo-safety.mjs && npm run typecheck && npm run lint && npm test && npm run build"
   },
   "dependencies": {
     "convex": "^1.48.0",

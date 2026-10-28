@@ -14,7 +14,7 @@ The access code represents **one shared operator identity**. It is not SAGE SSO,
 
 ## Validation and data boundaries
 
-- `npm run typecheck && npm run lint && npm test && npm run build`
+- `npm run check:local` (repo safety, typecheck, lint, tests, build; no provider credentials needed)
 - `npm audit --audit-level=high`
 - Manual text is stored in the local Convex backend and displayed as **static**, never as synced. Approved fields retain source snapshot provenance. Proposals do not change the master without an explicit approval.
 - HTML export is a provisional, approved-revision-only download. It is not the agreed production output format.
