@@ -1,0 +1,3 @@
+# Phase F — high-end design pass
+
+Created direction/plan for a quiet SAGE operations console. Added shared authenticated context rail, mobile strip and additive visual system without deleting dense source text, proposals or revision history. `POST_DESIGN_FUNCTIONAL_VALIDATION.md` records route/form/access/export preservation and unavailable browser visual/AT testing. `npm run check:local` passed (15 files/36 tests); loopback HTTP smoke validated gate, login/sign-out, dashboard, event, export and malformed ID. No API/schema/actions changes. Commit Phase F as a separate clean unit before final closeout.

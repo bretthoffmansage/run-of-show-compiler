@@ -2,6 +2,7 @@ import Link from "next/link";
 import { api } from "../convex/_generated/api";
 import { authorizedConvex } from "../lib/server-session";
 import { AccessGate } from "./components/AccessGate";
+import { AppShell } from "./components/AppShell";
 import { createEvent, createOrganization } from "./actions";
 
 export default async function Home({ searchParams }: { searchParams: Promise<{ organization?: string; access?: string }> }) {
@@ -11,7 +12,7 @@ export default async function Home({ searchParams }: { searchParams: Promise<{ o
   const requested = (await searchParams).organization;
   const active = organizations.find(org => org?._id === requested) ?? organizations[0];
   const events = active ? await client.query(api.events.list, { organizationId: active._id }) : [];
-  return <main className="dashboard">
+  return <AppShell organizationName={active?.name} organizationId={active?._id}><main className="dashboard">
     <header className="dashboard-header"><div><p className="eyebrow">SAGE · OPERATIONS</p><h1>Run of Show Compiler</h1></div><form action="/api/sign-out" method="post"><button type="submit" className="quiet-button">Sign out</button></form></header>
     <div className="dashboard-grid">
       <section className="dashboard-panel" aria-labelledby="org-title">
@@ -25,5 +26,5 @@ export default async function Home({ searchParams }: { searchParams: Promise<{ o
       </section>
     </div>
     <p className="dashboard-note">Local single-operator preview · Manual sources are static · Google sync and AI extraction are deferred.</p>
-  </main>;
+  </main></AppShell>;
 }

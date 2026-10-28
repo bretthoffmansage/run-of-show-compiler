@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import "./styles.css";
+import "./design.css";
 
 export const metadata: Metadata = {
   title: "Run of Show Compiler | SAGE",

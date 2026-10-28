@@ -7,6 +7,7 @@ import { authorizedConvex } from "../../../lib/server-session";
 import { addManualSource, approveProposal, editMaster, rejectProposal } from "../../actions";
 import { Workspace, type WorkspaceEntry, type WorkspaceSource } from "../../components/Workspace";
 import { RevisionHistory } from "../../components/RevisionHistory";
+import { AppShell } from "../../components/AppShell";
 
 export default async function EventWorkspace({ params }: { params: Promise<{ eventId: string }> }) {
   const client = await authorizedConvex();
@@ -44,7 +45,7 @@ export default async function EventWorkspace({ params }: { params: Promise<{ eve
       details: find("additional_detail") ?? null };
   }).sort((a, b) => `${a.date ?? "9999-99-99"} ${a.time ?? "99:99"}`.localeCompare(`${b.date ?? "9999-99-99"} ${b.time ?? "99:99"}`) || a.id.localeCompare(b.id));
   const pending = proposals.filter(proposal => proposal.state === "pending");
-  return <main className="event-page">
+  return <AppShell organizationName={organization.name} organizationId={organization._id} eventName={event.name} eventId={eventId}><main className="event-page">
     <header className="dashboard-header"><div><Link className="back-link" href={`/?organization=${event.organizationId}`}>← All events</Link><p className="eyebrow">SAGE · {organization.name} · EVENT WORKSPACE</p><h1>{event.name}</h1></div><form action="/api/sign-out" method="post"><button type="submit" className="quiet-button">Sign out</button></form></header>
     <p className="workspace-status">{sources.length} sources · {pending.length} pending fields · Approved revision {revision?.number ?? "none"}</p>
     <Workspace sources={workspaceSources} entries={entries} />
@@ -65,5 +66,5 @@ export default async function EventWorkspace({ params }: { params: Promise<{ eve
       </section>
       <RevisionHistory revisions={history.revisions} decisions={history.decisions} proposals={proposals} />
     </div>
-  </main>;
+  </main></AppShell>;
 }
