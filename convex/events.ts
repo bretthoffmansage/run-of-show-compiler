@@ -1,6 +1,6 @@
 import { mutation, query } from "./_generated/server";
 import { v } from "convex/values";
-import { organizationAccess } from "./access";
+import { eventAccess, organizationAccess } from "./access";
 
 export const create = mutation({
   args: { organizationId: v.id("organizations"), name: v.string() },
@@ -17,5 +17,13 @@ export const list = query({
   handler: async (ctx, { organizationId }) => {
     await organizationAccess(ctx, organizationId, "read");
     return (await ctx.db.query("events").withIndex("by_org", q => q.eq("organizationId", organizationId)).collect()).filter(e => !e.archived);
+  },
+});
+
+export const get = query({
+  args: { eventId: v.id("events") },
+  handler: async (ctx, { eventId }) => {
+    const { event } = await eventAccess(ctx, eventId, "read");
+    return event;
   },
 });

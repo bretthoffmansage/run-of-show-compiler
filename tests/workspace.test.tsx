@@ -14,7 +14,7 @@ describe("source and master workspace view", () => {
     expect(html).toContain("Revision r1");
     expect(html).toContain("needs review");
     expect(html).toContain("Open original");
-    expect(html).toContain("require an authenticated operator");
+    expect(html).toContain("Review pending proposals in the decisions panel below");
   });
 
   it("does not render unsafe source links", () => {

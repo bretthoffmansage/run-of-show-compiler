@@ -1,4 +1,4 @@
-import { internalMutation, query } from "./_generated/server";
+import { internalMutation, mutation, query } from "./_generated/server";
 import { v } from "convex/values";
 import { eventAccess } from "./access";
 import { diffText } from "../lib/snapshot-diff";
@@ -26,6 +26,18 @@ export const capture = internalMutation({
   },
 });
 
+/** Operator-provided text is a non-live input; never presented as synced. */
+export const captureManual = mutation({
+  args: { sourceId: v.id("sources"), content: v.string() },
+  handler: async (ctx, { sourceId, content }) => {
+    const source = await ctx.db.get(sourceId);
+    if (!source || source.archived || source.provider !== "manual") throw new Error("Access denied");
+    await eventAccess(ctx, source.eventId, "edit");
+    if (!content.trim() || new TextEncoder().encode(content).length > MAX_TEXT_BYTES) throw new Error("Invalid source content");
+    return ctx.db.insert("sourceSnapshots", { sourceId, revision: `manual:${crypto.randomUUID()}`, content, capturedAt: Date.now(), changedLines: content.split("\n").length });
+  },
+});
+
 export const list = query({
   args: { sourceId: v.id("sources") },
   handler: async (ctx, { sourceId }) => {
@@ -44,6 +56,17 @@ export const latest = query({
     if (!source) throw new Error("Access denied");
     await eventAccess(ctx, source.eventId, "read");
     return ctx.db.query("sourceSnapshots").withIndex("by_source", q => q.eq("sourceId", sourceId)).order("desc").first();
+  },
+});
+
+export const getProvenance = query({
+  args: { snapshotId: v.id("sourceSnapshots") },
+  handler: async (ctx, { snapshotId }) => {
+    const snapshot = await ctx.db.get(snapshotId);
+    const source = snapshot && await ctx.db.get(snapshot.sourceId);
+    if (!snapshot || !source) throw new Error("Access denied");
+    await eventAccess(ctx, source.eventId, "read");
+    return { sourceName: source.name, revision: snapshot.revision, capturedAt: snapshot.capturedAt };
   },
 });
 

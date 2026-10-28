@@ -33,6 +33,42 @@ export const propose = internalMutation({
   },
 });
 
+/** Deterministic review proposals from a manual text snapshot; no AI or auto-approval. */
+export const proposeManualSnapshot = mutation({
+  args: { snapshotId: v.id("sourceSnapshots") },
+  handler: async (ctx, { snapshotId }) => {
+    const snapshot = await ctx.db.get(snapshotId);
+    const source = snapshot && await ctx.db.get(snapshot.sourceId);
+    if (!snapshot || !source || source.archived || source.provider !== "manual") throw new Error("Access denied");
+    await eventAccess(ctx, source.eventId, "edit");
+    const existing = await ctx.db.query("masterProposals").withIndex("by_snapshot", q => q.eq("snapshotId", snapshotId)).collect();
+    if (existing.length) return existing.length;
+    let count = 0;
+    const lines = snapshot.content.split("\n").slice(0, 100);
+    for (let index = 0; index < lines.length; index++) {
+      const snippet = lines[index].trim();
+      if (!snippet) continue;
+      const match = snippet.match(/^(?:(\d{4}-\d{2}-\d{2})\s+)?(?:(\d{2}:\d{2})\s+)?(.+)$/);
+      if (!match) continue;
+      const entryKey = `${snapshotId}:${index}`;
+      const candidates = [
+        ...(match[1] ? [{ fieldKey: "date", proposedValue: match[1] }] : []),
+        ...(match[2] ? [{ fieldKey: "start_time", proposedValue: match[2] }] : []),
+        { fieldKey: "title", proposedValue: match[3] },
+      ];
+      for (const candidate of candidates) {
+        await ctx.db.insert("masterProposals", {
+          eventId: source.eventId, snapshotId, entryKey, fieldKey: candidate.fieldKey,
+          proposedValue: candidate.proposedValue, snippet, origin: "source_exact",
+          confidence: match[2] ? 0.85 : 0.5, state: "pending", createdAt: Date.now(),
+        });
+        count++;
+      }
+    }
+    return count;
+  },
+});
+
 export const listProposals = query({
   args: { eventId: v.id("events") },
   handler: async (ctx, { eventId }) => {

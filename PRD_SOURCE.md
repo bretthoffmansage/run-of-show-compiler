@@ -82,6 +82,12 @@ No integration is a Phase A blocker; production acceptance will require real con
 
 These are not license to fake live integrations. Use safe scaffolding/fixtures and surface later gates. [Raw §13]
 
+## Operator scope override — 2026-10-28
+
+The operator explicitly requested finishing **without an external identity provider**. For the initial single-operator release, PRD-01/02's SAGE IdP integration is intentionally deferred. Server-side access control and organization/event isolation are **not** waived: use a locally managed access-code session and deny access until configured. This is an operator-directed scope change, not a claim that the original PRD's multi-user roles or SAGE sign-in were implemented. Real production secrets, Google OAuth, AI service, cloud deployment, and retention decisions remain separately gated; this override does not waive them.
+
+The operator subsequently confirmed **yes** to an explicit narrowed-release question: finish a **local single-operator, manual-text workflow** and defer live Google sync, AI extraction, uploads, cloud deployment, and production retention/export decisions. The narrowed release is an internal local preview, not the original full MVP or a production launch. The deferred PRD-07–09/17–20 items remain visible in release and final artifacts; no live freshness, model accuracy, or cloud security claims are authorized. Local approved HTML download is provisional.
+
 ## Canonical implementation bias and quick map
 
 Prioritize PRD-01/03/05/19 for boundaries; PRD-07–13 for the core source-to-approved-master lifecycle; PRD-14/15 for presentation. Prefer a thin, verifiable vertical slice with honest status over a polished but fictional connection. Keep all material requirements traceable to a package, explicit deferment, or recorded ambiguity.

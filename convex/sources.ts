@@ -25,6 +25,28 @@ export const create = mutation({
   },
 });
 
+export const createManual = mutation({
+  args: { eventId: v.id("events"), name: v.string() },
+  handler: async (ctx, { eventId, name }) => {
+    const { event, userId } = await eventAccess(ctx, eventId, "edit");
+    const cleanName = name.trim();
+    if (!cleanName || cleanName.length > 120) throw new Error("Invalid source name");
+    return ctx.db.insert("sources", { organizationId: event.organizationId, eventId, name: cleanName, provider: "manual", url: "", state: "static", archived: false, createdBy: userId });
+  },
+});
+
+export const createManualWithSnapshot = mutation({
+  args: { eventId: v.id("events"), name: v.string(), content: v.string() },
+  handler: async (ctx, { eventId, name, content }) => {
+    const { event, userId } = await eventAccess(ctx, eventId, "edit");
+    const cleanName = name.trim();
+    if (!cleanName || cleanName.length > 120 || !content.trim() || new TextEncoder().encode(content).length > 64 * 1024) throw new Error("Invalid source input");
+    const sourceId = await ctx.db.insert("sources", { organizationId: event.organizationId, eventId, name: cleanName, provider: "manual", url: "", state: "static", archived: false, createdBy: userId });
+    const snapshotId = await ctx.db.insert("sourceSnapshots", { sourceId, revision: `manual:${crypto.randomUUID()}`, content, capturedAt: Date.now(), changedLines: content.split("\n").length });
+    return { sourceId, snapshotId };
+  },
+});
+
 export const list = query({
   args: { eventId: v.id("events") },
   handler: async (ctx, { eventId }) => {
@@ -51,7 +73,7 @@ export const pause = mutation({
     const source = await ctx.db.get(sourceId);
     if (!source || source.archived) throw new Error("Access denied");
     await eventAccess(ctx, source.eventId, "edit");
-    await ctx.db.patch(sourceId, { state: paused ? "paused" : "not_connected" });
+    await ctx.db.patch(sourceId, { state: paused ? "paused" : source.provider === "manual" ? "static" : "not_connected" });
   },
 });
 

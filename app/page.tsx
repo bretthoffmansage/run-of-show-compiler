@@ -1,32 +1,29 @@
-import { Workspace } from "./components/Workspace";
+import Link from "next/link";
+import { api } from "../convex/_generated/api";
+import { authorizedConvex } from "../lib/server-session";
+import { AccessGate } from "./components/AccessGate";
+import { createEvent, createOrganization } from "./actions";
 
-export default function Home() {
-  return (
-    <main className="shell">
-      <aside className="rail" aria-label="Workspace context">
-        <div className="brand">SAGE <span>· OPERATIONS</span></div>
-        <div className="selector"><span className="eyebrow">Organization</span><strong>Not configured</strong></div>
-        <div className="selector"><span className="eyebrow">Event</span><strong>No event selected</strong></div>
-        <nav aria-label="Event sections">
-          <span className="nav-label">Workspace</span>
-          <span className="nav-item current" aria-current="page">Overview</span>
-          <span className="nav-item disabled">Sources</span>
-          <span className="nav-item disabled">Master Run of Show</span>
-          <span className="nav-item disabled">Rules</span>
-          <span className="nav-item disabled">Change History</span>
-        </nav>
-        <p className="rail-note">Setup stage · No live connections</p>
-      </aside>
-      <section className="content" aria-labelledby="page-title">
-        <header className="topbar"><span>WORKSPACE / OVERVIEW</span><span className="status">NOT CONFIGURED</span></header>
-        <div className="intro">
-          <p className="eyebrow">Event operations</p>
-          <h1 id="page-title">Run of Show Compiler</h1>
-          <p>Bring event source documents into one reviewable timeline. Keep every proposed detail linked to its origin before an operator approves the official master.</p>
-        </div>
-        <Workspace sources={[]} entries={[]} />
-        <footer>Foundation preview only · Sign-in, event data, compilation, review, and export are not implemented.</footer>
+export default async function Home({ searchParams }: { searchParams: Promise<{ organization?: string; access?: string }> }) {
+  const client = await authorizedConvex();
+  if (!client) return <AccessGate denied={(await searchParams).access === "denied"} />;
+  const organizations = await client.query(api.organizations.listMine, {});
+  const requested = (await searchParams).organization;
+  const active = organizations.find(org => org?._id === requested) ?? organizations[0];
+  const events = active ? await client.query(api.events.list, { organizationId: active._id }) : [];
+  return <main className="dashboard">
+    <header className="dashboard-header"><div><p className="eyebrow">SAGE · OPERATIONS</p><h1>Run of Show Compiler</h1></div><form action="/api/sign-out" method="post"><button type="submit" className="quiet-button">Sign out</button></form></header>
+    <div className="dashboard-grid">
+      <section className="dashboard-panel" aria-labelledby="org-title">
+        <p className="eyebrow">01 / CONTEXT</p><h2 id="org-title">Organizations</h2>
+        {organizations.length ? <ul className="context-list">{organizations.map(org => org && <li key={org._id}><Link className={active?._id === org._id ? "selected" : ""} href={`/?organization=${org._id}`}>{org.name}</Link></li>)}</ul> : <p>No organization yet. Create one to begin.</p>}
+        <form action={createOrganization} className="stacked-form"><label htmlFor="new-org">New organization</label><input id="new-org" name="name" maxLength={120} required placeholder="Organization name" /><button type="submit">Create organization</button></form>
       </section>
-    </main>
-  );
+      <section className="dashboard-panel" aria-labelledby="event-title">
+        <p className="eyebrow">02 / EVENTS</p><h2 id="event-title">{active?.name ?? "Select an organization"}</h2>
+        {active ? <><p className="muted">Choose an event to review its sources and approved master.</p><ul className="context-list">{events.map(event => <li key={event._id}><Link href={`/events/${event._id}`}>{event.name}<span>Open workspace →</span></Link></li>)}</ul><form action={createEvent} className="stacked-form"><input type="hidden" name="organizationId" value={active._id} /><label htmlFor="new-event">New event</label><input id="new-event" name="name" maxLength={120} required placeholder="Event name" /><button type="submit">Create event</button></form></> : <p className="muted">Create an organization first.</p>}
+      </section>
+    </div>
+    <p className="dashboard-note">Single-operator mode · Manual sources are static · Google and AI connections require separate setup.</p>
+  </main>;
 }

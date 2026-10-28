@@ -1,5 +1,6 @@
 .env.local
 .env.*.local
+.local-access-code
 
 .DS_Store
 

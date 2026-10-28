@@ -160,21 +160,21 @@ Packages run strictly in order. Only **WP-01** is ready now; later packages are 
 
 ## WP-10 — Operational hardening and release validation
 
-- **Status:** needs_review; expanded from draft on 2026-10-28; local audit checkpoint complete, **package not complete** pending approved identity/environment input.
+- **Status:** complete for the operator-approved narrowed local single-operator/manual-text release on 2026-10-28; original live-integrations MVP and production launch remain explicitly deferred.
 - **Priority:** 10; depends on WP-09; blocks final execution audit and all later shell phases.
-- **Human approval required:** Yes for SAGE identity/provider/account choices, credentials, production cloud projects and official output target. **Data migration:** None for local audit; any production backend setup requires separate safe plan.
+- **Human approval required:** External SAGE IdP waived and live Google/AI/uploads/cloud/production retention/export explicitly deferred for this local release. They remain future setup/decision items, not silently met. **Data migration:** Additive changes on isolated anonymous local Convex only; no production migration.
 - **Purpose / anchors:** R8; PRD-01–21 and raw §12 acceptance. Distinguish fixture-backed foundations from working internal operations product.
-- **Current safe slice:** Run full local regression/security checks; build an acceptance matrix with pass/partial/missing/not-configured evidence; inspect environment without disclosing secrets; identify exactly which external setup and product decisions block live acceptance. Preserve missing requirements instead of narrowing them out of MVP.
-- **Out of scope:** Auto-provisioning SAGE accounts, Google OAuth consent, production Convex/Vercel/GitHub or AI credentials; destructive data operations; claiming unmeasured freshness/deployment/accuracy.
+- **Current safe slice:** Implement and validate app-owned access-code session, protected org/event dashboard, manual static source capture, reviewable proposals and approved HTML export on local Convex; run full local regression/security checks; build acceptance matrix and explicit deferral/setup inventory.
+- **Out of scope for approved local release:** Auto-provisioning SAGE accounts, Google OAuth/real sync, AI provider, uploads, production Convex/Vercel/GitHub, production retention/official export policy, destructive data operations, unmeasured freshness/deployment/accuracy claims.
 - **Preconditions:** WP-01–09 committed clean. No live identity/Google/AI/deployment available in repo.
 - **Likely files/systems:** Readiness audit, package status/run log, test/build commands; future implementation still needed for auth-wired app, upload decision, sync scheduling, real AI/review UI/export.
 - **Sensitive systems:** Any future secrets/backend/tenant data; read-only inspection now.
 - **Allowed / forbidden:** Local tests and static inspection; no production mutation, secret logging, remote creation or fabricated pass.
-- **Required checks:** `npm audit`, typecheck, lint, test, build and raw §12 matrix; live checks only after verified safe configuration.
+- **Required checks:** `npm audit`, typecheck, lint, test, build, local Convex push, authenticated/unauthenticated HTTP smoke, manual capture/proposal/approval/export, raw §12 matrix; no production claim.
 - **Regression checks:** Entire WP-01–09 test suite and route; Git clean at checkpoint.
-- **Definition of done:** Real MVP acceptance and configured environment evidence, or explicit user-authorized deferral of unmet requirements. Local matrix alone is **not** completion.
-- **Completion evidence:** Acceptance matrix, live auth/Google/AI/deployment checks when configured, operator decision on export/retention, log, separate closeout commit and clean tree. If unavailable, structured escalation and checkpoint only.
-- **Future:** Resume WP-10 from matrix upon Continue-ready. No final audit/hardening/fidelity/design until this package honestly completes.
+- **Definition of done:** Approved narrowed local manual workflow demonstrated end-to-end; unmet original PRD requirements explicitly deferred by operator and recorded with future setup. Local matrix alone is **not** completion.
+- **Completion evidence:** Acceptance matrix, local auth/manual/review/export checks, explicit Google/AI/deployment/retention/official-export deferral, log, separate closeout commit and clean tree.
+- **Future:** Phase D audit/hardening may proceed after this package's separate commit and clean tree. Original deferred requirements remain visible in all closeout artifacts and require new scope/setup before production.
 
 ## Explicit deferrals, exclusions and unresolved questions
 

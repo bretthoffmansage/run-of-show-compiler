@@ -6,7 +6,7 @@ export interface WorkspaceSource {
   id: string;
   name: string;
   provider: string;
-  state: "not_connected" | "paused" | "connected" | "stale" | "needs_reauthorization";
+  state: "not_connected" | "paused" | "static" | "connected" | "stale" | "needs_reauthorization";
   lastSuccessfulSync: string | null;
   preview: string | null;
   originalUrl: string | null;
@@ -59,8 +59,8 @@ export function Workspace({ sources, entries }: { sources: WorkspaceSource[]; en
             {entry.details && <p>{entry.details}</p>}
             <p className="provenance">Source: {entry.sourceName ?? "Operator"}{entry.sourceRevision ? ` · Revision ${entry.sourceRevision}` : ""}</p>
           </article>)}
-          <p className="review-note">Review actions require an authenticated operator and are not available in this preview.</p>
-        </div> : <div className="empty"><span className="empty-mark" aria-hidden="true">≡</span><h3>No master revision</h3><p>A chronological draft will appear after sources are connected and processed. No event details have been generated or approved.</p></div>}
+          <p className="review-note">Approved fields only. Review pending proposals in the decisions panel below.</p>
+        </div> : <div className="empty"><span className="empty-mark" aria-hidden="true">≡</span><h3>No master revision</h3><p>Approved event details will appear here after you review source proposals. No fields have been approved.</p></div>}
       </section>
     </div>
   );
