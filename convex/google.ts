@@ -78,7 +78,8 @@ export const completeOAuth = action({
     if (!validRedirectUri(redirectUri)) throw new Error("Invalid redirect URI");
     const { clientId, clientSecret } = oauthClient();
     const exchanged = await exchangeAuthorizationCode({ code, redirectUri, clientId, clientSecret, fetcher: fetch });
-    if (!exchanged.scopes.includes("drive.readonly")) throw new Error("Google grant is missing read-only Drive access; connect again and leave the Drive permission checked");
+    if (!exchanged.scopes.includes("drive.readonly")) throw new Error("Google grant is missing read-only Drive access; connect again and leave every permission checked");
+    if (!exchanged.scopes.includes("spreadsheets")) throw new Error("Google grant is missing spreadsheet access (needed to create playbooks); connect again and leave every permission checked");
     if (!exchanged.accountEmail) throw new Error("Google did not identify the connected account");
     const expected = process.env.GOOGLE_EXPECTED_ACCOUNT?.trim().toLowerCase();
     if (expected && exchanged.accountEmail !== expected) {

@@ -209,6 +209,20 @@ textarea { line-height: 1.5; resize: vertical; }
   .dashboard-panel { padding: 16px; }
 }
 
+/* Split screen: sources (left, tabbed) / playbook (right). The left pane gets
+   a native drag handle so the operator can slide the divider either way; the
+   right pane absorbs whatever width is left. */
+.panes { display: flex; align-items: stretch; }
+.panes > .pane:first-child { flex: 0 1 auto; width: 48%; resize: horizontal; overflow: auto; min-width: 240px; max-width: 75%; }
+.panes > .pane:last-child { flex: 1 1 0; }
+@media (max-width: 980px) {
+  .panes { flex-direction: column; }
+  .panes > .pane:first-child { width: auto; max-width: none; resize: none; }
+}
+.pane-heading:has(.playbook-link) { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.playbook-link { margin-left: auto; font-size: 13px; }
+.playbook-embed { width: 100%; height: 420px; border: 1px solid rgba(127, 127, 127, 0.35); border-radius: 8px; background: #fff; margin: 14px 18px 0; width: calc(100% - 36px); }
+
 /* Compiler marks: text color only, never background — red = sources disagree
    or unresolved (ask the client), pink = changed by a source edit recently. */
 .text-conflict { color: #e5484d; }

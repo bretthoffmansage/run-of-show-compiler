@@ -25,7 +25,7 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
     <div className="dashboard-grid">
       <section className="dashboard-panel" aria-labelledby="google-title">
         <p className="eyebrow">01 / GOOGLE</p><h2 id="google-title">Studio document access</h2>
-        <p className="muted">One dedicated Google account (normally studio@poweredbysage.com) grants read-only Drive access for every live source. Clients share their documents with that account; no client credentials are ever stored.</p>
+        <p className="muted">One dedicated Google account (normally studio@poweredbysage.com) grants read-only Drive access for every live source, plus spreadsheet access so the app can create and update each event&apos;s playbook sheet. Clients share their documents with that account; no client credentials are ever stored. If this connection was made before playbook creation existed, disconnect and reconnect once to grant the spreadsheet permission.</p>
         {google.connected ? <>
           <dl className="settings-facts">
             <div><dt>Connected account</dt><dd>{google.accountEmail}</dd></div>

@@ -30,13 +30,14 @@ export default async function EventWorkspace({ params, searchParams }: {
     event = await client.query(api.events.get, { eventId });
   } catch { notFound(); }
   const organization = await client.query(api.organizations.get, { organizationId: event.organizationId });
-  const [sources, proposals, revision, history, runs, googleStatus] = await Promise.all([
+  const [sources, proposals, revision, history, runs, googleStatus, playbook] = await Promise.all([
     client.query(api.sources.list, { eventId }),
     client.query(api.master.listProposals, { eventId }),
     client.query(api.master.latest, { eventId }),
     client.query(api.master.history, { eventId }),
     client.query(api.extraction.recentForEvent, { eventId }),
     client.query(api.google.status, {}),
+    client.query(api.playbooks.forEvent, { eventId }),
   ]);
   const snapshots = await Promise.all(sources.map(source => client.query(api.snapshots.latest, { sourceId: source._id })));
   const provenanceIds = [...new Set([
@@ -82,12 +83,14 @@ export default async function EventWorkspace({ params, searchParams }: {
     <header className="dashboard-header"><div><Link className="back-link" href={`/?organization=${event.organizationId}`}>← All events</Link><p className="eyebrow">SAGE · {organization.name} · EVENT WORKSPACE</p><h1>{event.name}</h1></div><SignOutButton redirectUrl="/sign-in"><button className="quiet-button">Sign out</button></SignOutButton></header>
     {notice && <p className="notice-banner" role="status">{notice}</p>}
     {liveSources.length > 0 && !googleStatus.connected && <p className="notice-banner warn" role="alert">No studio Google account is connected, so live sources cannot sync. <Link href="/settings">Connect it in Settings →</Link></p>}
+    {googleStatus.connected && !googleStatus.scopes.includes("spreadsheets") && <p className="notice-banner warn" role="alert">The Google connection predates playbook creation and can&apos;t create spreadsheets. <Link href="/settings">Reconnect it in Settings →</Link> (one click, keep every permission checked) and the playbook sheet will generate on the next compile.</p>}
+    {playbook?.lastError && <p className="notice-banner warn" role="alert">Playbook sheet: last write failed ({playbook.lastError === "needs_reconnect_for_sheets" ? "reconnect Google in Settings to grant spreadsheet access" : playbook.lastError}).</p>}
     <p className="workspace-status" suppressHydrationWarning>
       {sources.length} sources · Compiled revision {revision?.number ?? "none"}
       {runningRun ? " · Compiling…" : latestRun ? ` · Last compile ${latestRun.status}${latestRun.status === "failed" && latestRun.error ? ` (${latestRun.error})` : ""}` : ""}
       {" · "}<span className="legend"><span className="text-conflict">red = sources disagree, ask the client</span> · <span className="text-changed">pink = changed in the last 24h</span></span>
     </p>
-    <Workspace sources={workspaceSources} entries={entries} actions={{ refresh: refreshSource, setPaused: setSourcePaused, remove: removeSource }} />
+    <Workspace sources={workspaceSources} entries={entries} actions={{ refresh: refreshSource, setPaused: setSourcePaused, remove: removeSource }} playbookUrl={playbook?.url ?? null} />
     <div className="event-tools">
       <section className="dashboard-panel"><p className="eyebrow">03 / INTAKE</p><h2>Connect sources</h2>
         <div className="intake-grid">

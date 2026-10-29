@@ -108,15 +108,16 @@ async function syncSource(ctx: ActionCtx, source: Doc<"sources">, accessToken: s
   }
 }
 
-type TokenResult = { ok: true; accessToken: string; connectionId: Doc<"googleConnections">["_id"] } | { ok: false; reauth: boolean };
+type TokenResult = { ok: true; accessToken: string; scopes: string; connectionId: Doc<"googleConnections">["_id"] } | { ok: false; reauth: boolean };
 
-async function connectionToken(ctx: ActionCtx): Promise<TokenResult | null> {
+/** Shared by the sync pipeline and the playbook writer. */
+export async function connectionToken(ctx: ActionCtx): Promise<TokenResult | null> {
   const connection = await ctx.runQuery(internal.google.activeConnection, {});
   if (!connection) return null;
   const minted = await mintAccessToken(connection);
   await ctx.runMutation(internal.google.noteConnectionResult, { connectionId: connection._id, error: minted.ok ? undefined : minted.message });
   if (!minted.ok) return { ok: false, reauth: minted.code === "invalid_grant" };
-  return { ok: true, accessToken: minted.accessToken, connectionId: connection._id };
+  return { ok: true, accessToken: minted.accessToken, scopes: connection.scopes, connectionId: connection._id };
 }
 
 /** Cron entry point: reconcile every live source against Google. */

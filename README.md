@@ -41,7 +41,7 @@ See [DEPLOYMENT.md](DEPLOYMENT.md) for the one-time go-live checklist (Convex Cl
 ## Security model
 
 - Sign-in: Clerk (Google SSO). Convex additionally enforces a fail-closed server-side email/domain allowlist on **every** function call; organization/event data is membership-scoped.
-- Google access: read-only Drive scope on one dedicated account, connected by an operator through OAuth. No client credentials, no password storage; disconnect revokes the token at Google and deletes the sealed copy.
+- Google access: one dedicated account connected by an operator through OAuth, with read-only Drive scope (client sources) plus the Sheets scope (creating and writing the playbook spreadsheets the app generates — no broader Drive write access). No client credentials, no password storage; disconnect revokes the token at Google and deletes the sealed copy.
 - AI: the model sees only source text (as data) and reports through a schema; the validator rejects any field whose snippet is not verbatim in the source — invalid output is skipped, never compiled. Compilation is automatic; every compiled value stays traceable to its source snapshot, and the immutable revision history records every change.
 - Secrets live in Convex/Vercel environment configuration — never in the repo, logs, or exports.
 

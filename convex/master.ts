@@ -1,5 +1,6 @@
 import { internalMutation, mutation, query, type MutationCtx } from "./_generated/server";
 import { v } from "convex/values";
+import { internal } from "./_generated/api";
 import { eventAccess } from "./access";
 import { entryKeyFor, uniqueEntryKeys } from "../lib/entry-key";
 import type { Doc, Id } from "./_generated/dataModel";
@@ -129,7 +130,11 @@ export const ingestExtraction = internalMutation({
       });
     }
     let masterRevisionId: Id<"masterRevisions"> | null = null;
-    if (newFields.length) masterRevisionId = await nextRevision(ctx, eventId, "auto-compiler", newFields);
+    if (newFields.length) {
+      masterRevisionId = await nextRevision(ctx, eventId, "auto-compiler", newFields);
+      // The compiled result flows straight into the Google Sheet playbook.
+      await ctx.scheduler.runAfter(0, internal.playbooks.syncPlaybook, { eventId });
+    }
     for (const proposal of createdProposals) {
       await ctx.db.patch(proposal._id, { state: "approved", decidedBy: "auto-compiler", decidedAt: now });
       await ctx.db.insert("masterDecisions", { eventId, proposalId: proposal._id, kind: "approve", actor: "auto-compiler", at: now, ...(masterRevisionId ? { masterRevisionId } : {}) });
@@ -181,6 +186,7 @@ export const manualEdit = mutation({
     if (!validText(entryKey, 200) || !validText(value)) throw new Error("Invalid manual value");
     const masterRevisionId = await nextRevision(ctx, eventId, userId, [{ entryKey, fieldKey, value, origin: "operator" }]);
     await ctx.db.insert("masterDecisions", { eventId, kind: "manual_edit", actor: userId, at: Date.now(), masterRevisionId });
+    await ctx.scheduler.runAfter(0, internal.playbooks.syncPlaybook, { eventId });
     return masterRevisionId;
   },
 });

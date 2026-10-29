@@ -53,6 +53,16 @@ export default defineSchema({
   })
     .index("by_source", ["sourceId"])
     .index("by_source_revision", ["sourceId", "revision"]),
+  playbooks: defineTable({
+    eventId: v.id("events"),
+    spreadsheetId: v.string(),
+    url: v.string(),
+    templateId: v.string(),
+    pagSheetId: v.optional(v.number()),
+    createdAt: v.number(),
+    lastWriteAt: v.optional(v.number()),
+    lastError: v.optional(v.string()),
+  }).index("by_event", ["eventId"]),
   googleConnections: defineTable({
     accountEmail: v.string(),
     encryptedRefreshToken: v.string(),

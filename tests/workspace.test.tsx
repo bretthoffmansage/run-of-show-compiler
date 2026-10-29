@@ -21,7 +21,7 @@ describe("source and master workspace view", () => {
   it("renders separate source and master panes with provenance and status", () => {
     const html = renderToStaticMarkup(<Workspace sources={[source({})]} entries={[entry]} />);
     expect(html).toContain("Sources");
-    expect(html).toContain("Master run of show");
+    expect(html).toContain("Playbook");
     expect(html).toContain("Live · synced");
     expect(html).toContain("Rev drive:12");
     expect(html).toContain("Revision r1");

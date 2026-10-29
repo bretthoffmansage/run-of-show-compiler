@@ -87,7 +87,7 @@ function sourceStatus(source: WorkspaceSource): { label: string; tone: "ok" | "w
   }
 }
 
-export function Workspace({ sources, entries, actions }: { sources: WorkspaceSource[]; entries: WorkspaceEntry[]; actions?: SourceActions }) {
+export function Workspace({ sources, entries, actions, playbookUrl }: { sources: WorkspaceSource[]; entries: WorkspaceEntry[]; actions?: SourceActions; playbookUrl?: string | null }) {
   const [selectedId, setSelectedId] = useState(sources[0]?.id ?? null);
   const selected = sources.find(source => source.id === selectedId) ?? sources[0];
   const status = selected ? sourceStatus(selected) : null;
@@ -122,7 +122,8 @@ export function Workspace({ sources, entries, actions }: { sources: WorkspaceSou
         </> : <div className="empty"><span className="empty-mark" aria-hidden="true">↗</span><h3>No sources yet</h3><p>Connect a Google Doc or Sheet, or paste a static source, in the intake panel below.</p></div>}
       </section>
       <section className="pane" aria-labelledby="master-title">
-        <div className="pane-heading"><span className="eyebrow">02 / OUTPUT</span><h2 id="master-title">Master run of show</h2></div>
+        <div className="pane-heading"><span className="eyebrow">02 / PLAYBOOK</span><h2 id="master-title">Playbook</h2>{playbookUrl && <a className="playbook-link" href={playbookUrl} target="_blank" rel="noopener noreferrer">Open playbook ↗</a>}</div>
+        {playbookUrl && <iframe className="playbook-embed" src={`${playbookUrl.replace(/\/edit.*$/, "")}/preview`} title="Playbook spreadsheet" referrerPolicy="no-referrer" />}
         {entries.length ? <div className="master-list">
           {entries.map((entry, index) => {
             const dayHeading = dayHeadings[index];
