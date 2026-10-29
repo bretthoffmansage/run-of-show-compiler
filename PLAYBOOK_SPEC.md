@@ -107,3 +107,5 @@ Once a playbook exists, the event page becomes a split screen:
 5. **Airtable access:** shared-view links (scrapeable, no auth) vs. per-base API keys.
 6. **Uploads of same doc:** re-uploading a file is treated as a new revision of the same source (so its diffs can go pink) — confirm desired.
 7. **Optional tabs:** some playbooks carry 1.5 Speaker Tracking / 1.6 Sponsor Tracking (referenced by the Index's summary block, absent from the empty template). Include in v1 scope?
+8. **Color collision on the PAG:** the filled exemplars show SAGE already colors hand-authored text (magenta = dashboard/crew cues, blue = ops notes, red = timing corrections/scripted handoffs/revision notes, orange = audio cues). Proposed: compiler red/pink applies only to compiler-written structured values (titles, times, durations, logistics), never re-colors hand-authored cue text; Convex per-cell mark state remains the authoritative record of which red/pink is a compiler mark. Confirm.
+9. **AV Cues columns:** each day has a paired "Day N AV Cues" column. Do client production docs feed these via the compiler too, or are they hand-authored by SAGE (compiler leaves them alone)?
