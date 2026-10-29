@@ -55,12 +55,14 @@ export default defineSchema({
     .index("by_source_revision", ["sourceId", "revision"]),
   playbooks: defineTable({
     eventId: v.id("events"),
+    /** Empty string marks a stub row: creation was attempted and failed (see lastError). */
     spreadsheetId: v.string(),
     url: v.string(),
     templateId: v.string(),
     pagSheetId: v.optional(v.number()),
     createdAt: v.number(),
     lastWriteAt: v.optional(v.number()),
+    lastRevisionNumber: v.optional(v.number()),
     lastError: v.optional(v.string()),
   }).index("by_event", ["eventId"]),
   googleConnections: defineTable({

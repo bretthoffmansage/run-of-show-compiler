@@ -36,7 +36,23 @@ export const compileContext = internalQuery({
     if (!event || event.archived) return null;
     const playbook = await ctx.db.query("playbooks").withIndex("by_event", q => q.eq("eventId", eventId)).first();
     const revision = await ctx.db.query("masterRevisions").withIndex("by_event", q => q.eq("eventId", eventId)).order("desc").first();
-    return { eventName: event.name, playbook, fields: revision?.fields ?? [] };
+    return { eventName: event.name, playbook, fields: revision?.fields ?? [], revisionNumber: revision?.number ?? 0 };
+  },
+});
+
+/** Every compiled event whose playbook is missing, failed, or behind the master. */
+export const listNeedingSync = internalQuery({
+  args: {},
+  handler: async (ctx) => {
+    const events = (await ctx.db.query("events").collect()).filter(event => !event.archived);
+    const needing: Array<typeof events[number]["_id"]> = [];
+    for (const event of events) {
+      const revision = await ctx.db.query("masterRevisions").withIndex("by_event", q => q.eq("eventId", event._id)).order("desc").first();
+      if (!revision) continue;
+      const playbook = await ctx.db.query("playbooks").withIndex("by_event", q => q.eq("eventId", event._id)).first();
+      if (!playbook || !playbook.spreadsheetId || playbook.lastError || (playbook.lastRevisionNumber ?? -1) < revision.number) needing.push(event._id);
+    }
+    return needing;
   },
 });
 
@@ -44,17 +60,29 @@ export const record = internalMutation({
   args: { eventId: v.id("events"), spreadsheetId: v.string(), url: v.string(), templateId: v.string(), pagSheetId: v.optional(v.number()) },
   handler: async (ctx, args) => {
     const existing = await ctx.db.query("playbooks").withIndex("by_event", q => q.eq("eventId", args.eventId)).first();
-    if (existing) return existing._id;
+    if (existing && existing.spreadsheetId) return existing._id;
+    if (existing) {
+      // A stub from an earlier failed attempt graduates into the real sheet.
+      await ctx.db.patch(existing._id, { spreadsheetId: args.spreadsheetId, url: args.url, templateId: args.templateId, pagSheetId: args.pagSheetId });
+      return existing._id;
+    }
     return ctx.db.insert("playbooks", { ...args, createdAt: Date.now() });
   },
 });
 
 export const noteResult = internalMutation({
-  args: { eventId: v.id("events"), error: v.optional(v.string()) },
-  handler: async (ctx, { eventId, error }) => {
+  args: { eventId: v.id("events"), error: v.optional(v.string()), revisionNumber: v.optional(v.number()) },
+  handler: async (ctx, { eventId, error, revisionNumber }) => {
     const playbook = await ctx.db.query("playbooks").withIndex("by_event", q => q.eq("eventId", eventId)).first();
-    if (!playbook) return;
-    await ctx.db.patch(playbook._id, error ? { lastError: error.slice(0, 500) } : { lastError: undefined, lastWriteAt: Date.now() });
+    if (!playbook) {
+      // Keep failures visible even before a sheet exists: a stub row carries
+      // the error to the event page instead of failing silently.
+      if (error) await ctx.db.insert("playbooks", { eventId, spreadsheetId: "", url: "", templateId: templateId(), createdAt: Date.now(), lastError: error.slice(0, 500) });
+      return;
+    }
+    await ctx.db.patch(playbook._id, error
+      ? { lastError: error.slice(0, 500) }
+      : { lastError: undefined, lastWriteAt: Date.now(), ...(revisionNumber !== undefined ? { lastRevisionNumber: revisionNumber } : {}) });
   },
 });
 
@@ -74,24 +102,37 @@ async function sheetsJson(url: string, token: string, init?: { method?: string; 
   return data as Record<string, unknown>;
 }
 
-/** Scheduled after every compile; also safe to run repeatedly. */
+/** Cron entry point: catches events compiled before a playbook existed. */
+export const syncAll = internalAction({
+  args: {},
+  handler: async (ctx) => {
+    const eventIds = await ctx.runQuery(internal.playbooks.listNeedingSync, {});
+    for (const eventId of eventIds) {
+      await ctx.runAction(internal.playbooks.syncPlaybook, { eventId });
+    }
+  },
+});
+
+/** Scheduled after every compile and by the cron; safe to run repeatedly. */
 export const syncPlaybook = internalAction({
   args: { eventId: v.id("events") },
   handler: async (ctx, { eventId }) => {
     const context = await ctx.runQuery(internal.playbooks.compileContext, { eventId });
     if (!context || !context.fields.length) return;
+    const upToDate = context.playbook && context.playbook.spreadsheetId && !context.playbook.lastError && (context.playbook.lastRevisionNumber ?? -1) >= context.revisionNumber;
+    if (upToDate) return;
     const token = await connectionToken(ctx);
     if (!token || !token.ok) {
-      if (context.playbook) await ctx.runMutation(internal.playbooks.noteResult, { eventId, error: token && !token.ok ? "google_connection_failed" : "no_google_connection" });
+      await ctx.runMutation(internal.playbooks.noteResult, { eventId, error: token && !token.ok ? "google_connection_failed" : "no_google_connection" });
       return;
     }
     if (!token.scopes.includes("spreadsheets")) {
       // Old read-only grant: the UI tells the operator to reconnect in Settings.
-      if (context.playbook) await ctx.runMutation(internal.playbooks.noteResult, { eventId, error: "needs_reconnect_for_sheets" });
+      await ctx.runMutation(internal.playbooks.noteResult, { eventId, error: "needs_reconnect_for_sheets" });
       return;
     }
     try {
-      let playbook = context.playbook;
+      let playbook = context.playbook && context.playbook.spreadsheetId ? context.playbook : null;
       if (!playbook) {
         const created = await sheetsJson("https://sheets.googleapis.com/v4/spreadsheets", token.accessToken, {
           method: "POST",
@@ -135,7 +176,7 @@ export const syncPlaybook = internalAction({
       }
       const requests = pagWriteRequests(pagSheetId, pagPlan(context.fields, Date.now()));
       await sheetsJson(`https://sheets.googleapis.com/v4/spreadsheets/${playbook.spreadsheetId}:batchUpdate`, token.accessToken, { method: "POST", body: { requests } });
-      await ctx.runMutation(internal.playbooks.noteResult, { eventId });
+      await ctx.runMutation(internal.playbooks.noteResult, { eventId, revisionNumber: context.revisionNumber });
     } catch (error) {
       const message = error instanceof Error ? error.message : "Playbook write failed";
       await ctx.runMutation(internal.playbooks.noteResult, { eventId, error: message });

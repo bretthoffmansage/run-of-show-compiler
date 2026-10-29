@@ -84,13 +84,17 @@ export default async function EventWorkspace({ params, searchParams }: {
     {notice && <p className="notice-banner" role="status">{notice}</p>}
     {liveSources.length > 0 && !googleStatus.connected && <p className="notice-banner warn" role="alert">No studio Google account is connected, so live sources cannot sync. <Link href="/settings">Connect it in Settings →</Link></p>}
     {googleStatus.connected && !googleStatus.scopes.includes("spreadsheets") && <p className="notice-banner warn" role="alert">The Google connection predates playbook creation and can&apos;t create spreadsheets. <Link href="/settings">Reconnect it in Settings →</Link> (one click, keep every permission checked) and the playbook sheet will generate on the next compile.</p>}
-    {playbook?.lastError && <p className="notice-banner warn" role="alert">Playbook sheet: last write failed ({playbook.lastError === "needs_reconnect_for_sheets" ? "reconnect Google in Settings to grant spreadsheet access" : playbook.lastError}).</p>}
+    {playbook?.lastError && <p className="notice-banner warn" role="alert">Playbook sheet: {{
+      needs_reconnect_for_sheets: "reconnect Google in Settings to grant spreadsheet access — it will generate on its own after that",
+      no_google_connection: "connect the studio Google account in Settings and it will generate on its own",
+      google_connection_failed: "the Google connection is failing; reconnect it in Settings",
+    }[playbook.lastError] ?? `last write failed (${playbook.lastError}) — it retries every couple of minutes`}.</p>}
     <p className="workspace-status" suppressHydrationWarning>
       {sources.length} sources · Compiled revision {revision?.number ?? "none"}
       {runningRun ? " · Compiling…" : latestRun ? ` · Last compile ${latestRun.status}${latestRun.status === "failed" && latestRun.error ? ` (${latestRun.error})` : ""}` : ""}
       {" · "}<span className="legend"><span className="text-conflict">red = sources disagree, ask the client</span> · <span className="text-changed">pink = changed in the last 24h</span></span>
     </p>
-    <Workspace sources={workspaceSources} entries={entries} actions={{ refresh: refreshSource, setPaused: setSourcePaused, remove: removeSource }} playbookUrl={playbook?.url ?? null} />
+    <Workspace sources={workspaceSources} entries={entries} actions={{ refresh: refreshSource, setPaused: setSourcePaused, remove: removeSource }} playbookUrl={playbook?.url || null} />
     <div className="event-tools">
       <section className="dashboard-panel"><p className="eyebrow">03 / INTAKE</p><h2>Connect sources</h2>
         <div className="intake-grid">
