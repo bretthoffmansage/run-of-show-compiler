@@ -55,19 +55,27 @@ export function gatewayAdapter(config: GatewayAdapterConfig): ModelAdapter {
       if (!response.ok) {
         throw new Error(`Extraction model request failed (${response.status})`);
       }
-      const { text, reportedModel } = await accumulateStream(response);
+      const { text, reportedModel, finishReason } = await accumulateStream(response);
+      // A length finish means the JSON was cut off mid-stream: dense source
+      // chunks produce more extraction output than fits. The caller splits
+      // the chunk and retries on this exact error prefix.
+      if (finishReason === "length") throw new Error(TRUNCATED_ERROR);
       return { model, version: reportedModel ?? model, output: withEvidence(parseJsonObject(text), untrustedSource.sourceId, untrustedSource.revision) };
     },
   };
 }
 
-async function accumulateStream(response: Response): Promise<{ text: string; reportedModel: string | null }> {
+/** Error prefix the extraction loop keys on to bisect a too-dense chunk. */
+export const TRUNCATED_ERROR = "Extraction output truncated: chunk too dense";
+
+async function accumulateStream(response: Response): Promise<{ text: string; reportedModel: string | null; finishReason: string | null }> {
   if (!response.body) throw new Error("Extraction model returned no body");
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
   let buffer = "";
   let text = "";
   let reportedModel: string | null = null;
+  let finishReason: string | null = null;
   try {
     while (true) {
       const { done, value } = await reader.read();
@@ -80,17 +88,19 @@ async function accumulateStream(response: Response): Promise<{ text: string; rep
         if (!payload || payload === "[DONE]") continue;
         try {
           const event: unknown = JSON.parse(payload);
-          const record = event as { model?: unknown; choices?: Array<{ delta?: { content?: unknown } }> };
+          const record = event as { model?: unknown; choices?: Array<{ delta?: { content?: unknown }; finish_reason?: unknown }> };
           if (typeof record.model === "string" && !reportedModel) reportedModel = record.model;
           const delta = record.choices?.[0]?.delta?.content;
           if (typeof delta === "string") text += delta;
+          const finish = record.choices?.[0]?.finish_reason;
+          if (typeof finish === "string" && finish) finishReason = finish;
         } catch { /* Keep-alive or partial line; next chunk completes it. */ }
       }
     }
   } finally {
     reader.releaseLock();
   }
-  return { text, reportedModel };
+  return { text, reportedModel, finishReason };
 }
 
 function parseJsonObject(text: string): unknown {
@@ -101,7 +111,16 @@ function parseJsonObject(text: string): unknown {
   if (fence) candidate = fence[1].trim();
   try {
     return JSON.parse(candidate);
-  } catch {
-    throw new Error("Extraction model returned non-JSON output");
+  } catch { /* fall through to the brace slice */ }
+  // Salvage a response with prose around the object: parse the outermost
+  // {...} span. The provenance validator re-checks everything afterwards,
+  // so a salvaged parse can still only admit verbatim-backed fields.
+  const first = candidate.indexOf("{");
+  const last = candidate.lastIndexOf("}");
+  if (first >= 0 && last > first) {
+    try {
+      return JSON.parse(candidate.slice(first, last + 1));
+    } catch { /* fail closed below */ }
   }
+  throw new Error("Extraction model returned non-JSON output");
 }

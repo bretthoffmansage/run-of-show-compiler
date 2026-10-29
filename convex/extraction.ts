@@ -112,20 +112,36 @@ export const runSnapshot = internalAction({
       // Convex kills actions at 10 minutes, and a killed action can record
       // nothing — so the chunk loop carries its own time budget and chunk
       // failures are kept per-chunk: whatever extracted still compiles.
+      // Chunks whose extraction output overflows the model's token cap
+      // (dense spreadsheets) are bisected and retried at a smaller size.
       const deadline = Date.now() + 7 * 60 * 1000;
-      const chunks = chunkByLines(context.content).slice(0, 24);
+      const queue = chunkByLines(context.content).slice(0, 24).map(chunk => ({ chunk, depth: 0 }));
       const items: ExtractionOutput["items"] = [];
+      let attempted = 0;
       let failedChunks = 0;
       let skippedChunks = 0;
       let firstError: string | null = null;
-      for (const chunk of chunks) {
-        if (Date.now() > deadline) { skippedChunks++; continue; }
+      const MIN_SPLIT_BYTES = 4_000;
+      const MAX_TASKS = 60;
+      while (queue.length) {
+        const task = queue.shift()!;
+        if (Date.now() > deadline || attempted >= MAX_TASKS) { skippedChunks++; continue; }
+        attempted++;
         try {
-          const result = await extractFromExcerpt({ sourceId: context.sourceId, revision: context.revision, text: chunk }, adapter);
+          const result = await extractFromExcerpt({ sourceId: context.sourceId, revision: context.revision, text: task.chunk }, adapter);
           items.push(...result.items);
         } catch (error) {
+          const message = error instanceof Error ? error.message : "chunk failed";
+          const dense = /truncated|non-JSON/i.test(message);
+          const bytes = new TextEncoder().encode(task.chunk).length;
+          if (dense && bytes > MIN_SPLIT_BYTES && task.depth < 4) {
+            // Halve the chunk: smaller input → smaller output → fits the cap.
+            const halves = chunkByLines(task.chunk, Math.max(MIN_SPLIT_BYTES, Math.ceil(bytes / 2)));
+            queue.unshift(...halves.map(half => ({ chunk: half, depth: task.depth + 1 })));
+            continue;
+          }
           failedChunks++;
-          firstError ??= error instanceof Error ? error.message.slice(0, 300) : "chunk failed";
+          firstError ??= message.slice(0, 300);
         }
       }
       const limited = items.slice(0, 200);
@@ -137,7 +153,7 @@ export const runSnapshot = internalAction({
       const partial = failedChunks + skippedChunks;
       await ctx.runMutation(internal.extraction.finishRun, {
         runId, status: "succeeded", itemCount: limited.length, proposalCount: ingested.created,
-        ...(partial ? { error: `partial: ${partial}/${chunks.length} chunks not processed${firstError ? ` (${firstError})` : ""}` } : {}),
+        ...(partial ? { error: `partial: ${partial} chunks not processed${firstError ? ` (${firstError})` : ""}` } : {}),
       });
     } catch (error) {
       const message = error instanceof Error ? error.message.slice(0, 500) : "Extraction failed";
@@ -149,22 +165,40 @@ export const runSnapshot = internalAction({
 /** A run "running" for longer than Convex allows an action to live is a zombie. */
 const STUCK_RUN_MS = 12 * 60 * 1000;
 
+const MAX_AUTO_RETRIES = 5;
+
 export const reapStuckRuns = internalMutation({
   args: {},
   handler: async (ctx) => {
     const cutoff = Date.now() - STUCK_RUN_MS;
-    const stuck = (await ctx.db.query("extractionRuns").collect()).filter(run => run.status === "running" && run.startedAt < cutoff);
-    for (const run of stuck) {
-      await ctx.db.patch(run._id, { status: "failed", error: "timed_out", finishedAt: Date.now() });
+    const runs = await ctx.db.query("extractionRuns").collect();
+    for (const run of runs) {
+      if (run.status === "running" && run.startedAt < cutoff) {
+        await ctx.db.patch(run._id, { status: "failed", error: "timed_out", finishedAt: Date.now() });
+        run.status = "failed";
+      }
     }
-    return [...new Set(stuck.map(run => run.snapshotId))];
+    // Retry snapshots whose every run failed (bounded), but only a source's
+    // latest snapshot — an old revision's failure is moot once a newer one
+    // exists.
+    const bySnapshot = new Map<typeof runs[number]["snapshotId"], typeof runs>();
+    for (const run of runs) bySnapshot.set(run.snapshotId, [...(bySnapshot.get(run.snapshotId) ?? []), run]);
+    const retry: Array<typeof runs[number]["snapshotId"]> = [];
+    for (const [snapshotId, group] of bySnapshot) {
+      if (group.some(run => run.status !== "failed") || group.length >= MAX_AUTO_RETRIES) continue;
+      const snapshot = await ctx.db.get(snapshotId);
+      if (!snapshot) continue;
+      const latest = await ctx.db.query("sourceSnapshots").withIndex("by_source", q => q.eq("sourceId", snapshot.sourceId)).order("desc").first();
+      if (latest?._id === snapshotId) retry.push(snapshotId);
+    }
+    return retry;
   },
 });
 
 /**
  * Cron: mark zombie runs failed (which also unblocks startRun's dedupe
- * guard) and re-run their snapshots. With the bounded loop above, the retry
- * finishes and compiles instead of dying the same way.
+ * guard) and re-run snapshots that have only failures. With the bounded,
+ * bisecting loop above, retries converge instead of dying the same way.
  */
 export const retryStuck = internalAction({
   args: {},
