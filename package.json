@@ -9,6 +9,7 @@
     "typecheck": "tsc --noEmit",
     "lint": "eslint app lib tests convex middleware.ts --ignore-pattern 'convex/_generated/**'",
     "test": "vitest run",
+    "doctor": "node scripts/doctor.mjs",
     "check": "node scripts/check-repo-safety.mjs && npm run typecheck && npm run lint && npm test && npm run build",
     "check:local": "npm run check"
   },

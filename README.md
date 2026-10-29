@@ -34,6 +34,8 @@ Tests cover the authorization contract, snapshot immutability/dedup, the extract
 
 ## Deployment
 
+Setting up a **new computer** to work on or deploy this project: [SETUP_NEW_MACHINE.md](SETUP_NEW_MACHINE.md) (a deploy needs nothing but git + a GitHub credential; `npm run doctor` verifies a machine).
+
 See [DEPLOYMENT.md](DEPLOYMENT.md) for the one-time go-live checklist (Convex Cloud, Clerk, Google OAuth client, Anthropic key, Vercel). After that, every push to `main` deploys via Vercel; the build runs `npx convex deploy` first (see `vercel.json`).
 
 ## Security model
