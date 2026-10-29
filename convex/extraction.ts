@@ -109,17 +109,69 @@ export const runSnapshot = internalAction({
     const runId = await ctx.runMutation(internal.extraction.startRun, { eventId: context.eventId, snapshotId, engine, model });
     if (!runId) return;
     try {
+      // Convex kills actions at 10 minutes, and a killed action can record
+      // nothing — so the chunk loop carries its own time budget and chunk
+      // failures are kept per-chunk: whatever extracted still compiles.
+      const deadline = Date.now() + 7 * 60 * 1000;
+      const chunks = chunkByLines(context.content).slice(0, 24);
       const items: ExtractionOutput["items"] = [];
-      for (const chunk of chunkByLines(context.content)) {
-        const result = await extractFromExcerpt({ sourceId: context.sourceId, revision: context.revision, text: chunk }, adapter);
-        items.push(...result.items);
+      let failedChunks = 0;
+      let skippedChunks = 0;
+      let firstError: string | null = null;
+      for (const chunk of chunks) {
+        if (Date.now() > deadline) { skippedChunks++; continue; }
+        try {
+          const result = await extractFromExcerpt({ sourceId: context.sourceId, revision: context.revision, text: chunk }, adapter);
+          items.push(...result.items);
+        } catch (error) {
+          failedChunks++;
+          firstError ??= error instanceof Error ? error.message.slice(0, 300) : "chunk failed";
+        }
       }
       const limited = items.slice(0, 200);
+      if (!limited.length && (failedChunks || skippedChunks)) {
+        await ctx.runMutation(internal.extraction.finishRun, { runId, status: "failed", error: firstError ?? `ran out of time (${skippedChunks} chunks unprocessed)` });
+        return;
+      }
       const ingested: { created: number; skipped: number } = await ctx.runMutation(internal.master.ingestExtraction, { eventId: context.eventId, snapshotId, items: limited });
-      await ctx.runMutation(internal.extraction.finishRun, { runId, status: "succeeded", itemCount: limited.length, proposalCount: ingested.created });
+      const partial = failedChunks + skippedChunks;
+      await ctx.runMutation(internal.extraction.finishRun, {
+        runId, status: "succeeded", itemCount: limited.length, proposalCount: ingested.created,
+        ...(partial ? { error: `partial: ${partial}/${chunks.length} chunks not processed${firstError ? ` (${firstError})` : ""}` } : {}),
+      });
     } catch (error) {
       const message = error instanceof Error ? error.message.slice(0, 500) : "Extraction failed";
       await ctx.runMutation(internal.extraction.finishRun, { runId, status: "failed", error: message });
+    }
+  },
+});
+
+/** A run "running" for longer than Convex allows an action to live is a zombie. */
+const STUCK_RUN_MS = 12 * 60 * 1000;
+
+export const reapStuckRuns = internalMutation({
+  args: {},
+  handler: async (ctx) => {
+    const cutoff = Date.now() - STUCK_RUN_MS;
+    const stuck = (await ctx.db.query("extractionRuns").collect()).filter(run => run.status === "running" && run.startedAt < cutoff);
+    for (const run of stuck) {
+      await ctx.db.patch(run._id, { status: "failed", error: "timed_out", finishedAt: Date.now() });
+    }
+    return [...new Set(stuck.map(run => run.snapshotId))];
+  },
+});
+
+/**
+ * Cron: mark zombie runs failed (which also unblocks startRun's dedupe
+ * guard) and re-run their snapshots. With the bounded loop above, the retry
+ * finishes and compiles instead of dying the same way.
+ */
+export const retryStuck = internalAction({
+  args: {},
+  handler: async (ctx) => {
+    const snapshotIds = await ctx.runMutation(internal.extraction.reapStuckRuns, {});
+    for (const snapshotId of snapshotIds) {
+      await ctx.scheduler.runAfter(0, internal.extraction.runSnapshot, { snapshotId });
     }
   },
 });
