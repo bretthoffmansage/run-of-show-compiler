@@ -1,6 +1,8 @@
 /** Server-use read adapter. Caller must supply a verified, server-held OAuth token. */
+import { parseGoogleSourceUrl, type DetectedProvider } from "./google-url";
+
 export type GoogleProvider = "google_docs" | "google_sheets";
-export type GoogleReadErrorCode = "invalid_source" | "needs_reauthorization" | "access_removed" | "rate_limited" | "unavailable" | "parse_failed" | "too_large";
+export type GoogleReadErrorCode = "invalid_source" | "needs_reauthorization" | "access_removed" | "rate_limited" | "unavailable" | "parse_failed" | "too_large" | "office_file";
 
 export class GoogleReadError extends Error {
   constructor(readonly code: GoogleReadErrorCode) {
@@ -10,17 +12,26 @@ export class GoogleReadError extends Error {
 }
 
 export type Fetcher = (input: string, init?: RequestInit) => Promise<Response>;
-const MAX_RESPONSE_BYTES = 512 * 1024;
-const MAX_TEXT_BYTES = 64 * 1024;
+const MAX_RESPONSE_BYTES = 8 * 1024 * 1024;
+const MAX_TEXT_BYTES = 256 * 1024;
 
-function fileIdFromUrl(input: string, provider: GoogleProvider): string {
-  let url: URL;
-  try { url = new URL(input); } catch { throw new GoogleReadError("invalid_source"); }
-  const prefix = provider === "google_docs" ? "/document/d/" : "/spreadsheets/d/";
-  if (url.protocol !== "https:" || url.hostname !== "docs.google.com" || !url.pathname.startsWith(prefix)) throw new GoogleReadError("invalid_source");
-  const id = url.pathname.slice(prefix.length).split("/")[0];
-  if (!/^[A-Za-z0-9_-]+$/.test(id)) throw new GoogleReadError("invalid_source");
-  return id;
+const NATIVE_MIME: Record<string, GoogleProvider> = {
+  "application/vnd.google-apps.document": "google_docs",
+  "application/vnd.google-apps.spreadsheet": "google_sheets",
+};
+/** Office/CSV files stored in Drive open in Docs/Sheets but are not readable through these APIs. */
+const OFFICE_MIME = new Set([
+  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  "application/vnd.ms-excel",
+  "application/msword",
+  "text/csv",
+]);
+
+function fileIdFromUrl(input: string): string {
+  const parsed = parseGoogleSourceUrl(input);
+  if (!parsed) throw new GoogleReadError("invalid_source");
+  return parsed.fileId;
 }
 
 async function jsonFromGoogle(url: string, token: string, fetcher: Fetcher): Promise<Record<string, unknown>> {
@@ -81,22 +92,29 @@ function sheetTitles(data: Record<string, unknown>): string[] {
   return titles as string[];
 }
 
-/** Cheap change probe: Drive metadata only, no document content. */
-export async function readGoogleMetadata(args: { url: string; provider: GoogleProvider; accessToken: string; fetcher: Fetcher }) {
-  const { url, provider, accessToken, fetcher } = args;
-  const fileId = fileIdFromUrl(url, provider);
+/**
+ * Cheap change probe: Drive metadata only, no document content. Also detects
+ * what the file really is, so a pasted drive.google.com link (or a source
+ * added with the wrong kind) resolves itself; Office files stored in Drive
+ * get a distinct, actionable error instead of looking like lost access.
+ */
+export async function readGoogleMetadata(args: { url: string; accessToken: string; fetcher: Fetcher }) {
+  const { url, accessToken, fetcher } = args;
+  const fileId = fileIdFromUrl(url);
   if (!accessToken) throw new GoogleReadError("needs_reauthorization");
   const meta = await jsonFromGoogle(`https://www.googleapis.com/drive/v3/files/${fileId}?fields=id,mimeType,version,modifiedTime,trashed`, accessToken, fetcher);
-  const expectedMime = provider === "google_docs" ? "application/vnd.google-apps.document" : "application/vnd.google-apps.spreadsheet";
-  if (meta.id !== fileId || meta.mimeType !== expectedMime || meta.trashed === true) throw new GoogleReadError("access_removed");
+  if (meta.id !== fileId || meta.trashed === true) throw new GoogleReadError("access_removed");
+  const mime = typeof meta.mimeType === "string" ? meta.mimeType : "";
+  const provider: DetectedProvider | undefined = NATIVE_MIME[mime];
+  if (!provider) throw new GoogleReadError(OFFICE_MIME.has(mime) ? "office_file" : "invalid_source");
   if (typeof meta.version !== "string" || !meta.version) throw new GoogleReadError("parse_failed");
-  return { fileId, revision: `drive:${meta.version}`, modifiedTime: typeof meta.modifiedTime === "string" ? meta.modifiedTime : null };
+  return { fileId, provider, revision: `drive:${meta.version}`, modifiedTime: typeof meta.modifiedTime === "string" ? meta.modifiedTime : null };
 }
 
-export async function readGoogleSource(args: { url: string; provider: GoogleProvider; accessToken: string; fetcher: Fetcher }) {
-  const { provider, accessToken, fetcher } = args;
+export async function readGoogleSource(args: { url: string; accessToken: string; fetcher: Fetcher }) {
+  const { accessToken, fetcher } = args;
   const meta = await readGoogleMetadata(args);
-  const fileId = meta.fileId;
+  const { fileId, provider } = meta;
 
   let raw: Record<string, unknown>;
   let text: string;

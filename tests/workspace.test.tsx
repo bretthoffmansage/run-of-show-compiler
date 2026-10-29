@@ -13,7 +13,7 @@ function source(overrides: Partial<WorkspaceSource>): WorkspaceSource {
 
 const entry: WorkspaceEntry = {
   id: "entry-1", date: "2026-11-03", time: "09:00", title: "Opening", speaker: "Ava Chen",
-  sourceName: "Agenda", sourceRevision: "r1", changeState: "needs_review", details: "Host welcome",
+  sourceName: "Agenda", sourceRevision: "r1", changeState: "conflict", titleMark: "conflict", details: "Host welcome",
   extras: [{ key: "production_note", value: "Cue walk-in music" }],
 };
 
@@ -29,16 +29,17 @@ describe("source and master workspace view", () => {
     expect(html).toContain("09:00");
     expect(html).toContain("Ava Chen");
     expect(html).toContain("Cue walk-in music");
-    expect(html).toContain("needs review");
+    expect(html).toContain("sources disagree");
+    expect(html).toContain("text-conflict");
     expect(html).toContain("Open original");
-    expect(html).toContain("Review pending proposals in the decisions panel below");
+    expect(html).toContain("ask the client");
   });
 
   it("surfaces stale and error states without claiming a live sync", () => {
     const stale = renderToStaticMarkup(<Workspace sources={[source({ lastCheckedAt: Date.now() - 30 * 60_000 })]} entries={[]} />);
     expect(stale).toContain("possibly stale");
     const broken = renderToStaticMarkup(<Workspace sources={[source({ state: "needs_reauthorization" })]} entries={[]} />);
-    expect(broken).toContain("Needs reauthorization");
+    expect(broken).toContain("reconnect it in Settings");
   });
 
   it("does not render unsafe source links", () => {

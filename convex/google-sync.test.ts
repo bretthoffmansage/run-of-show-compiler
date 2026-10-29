@@ -67,26 +67,32 @@ describe("google source sync pipeline", () => {
       expect(sources[0].lastSyncAt).toBeTypeOf("number");
       const snapshot = await operator.query(api.snapshots.latest, { sourceId });
       expect(snapshot?.content).toContain("Keynote");
-      const pendingBefore = (await operator.query(api.master.listProposals, { eventId })).filter(p => p.state === "pending");
-      expect(pendingBefore.length).toBe(6);
+      // Zero-click compile: extraction output lands in the master immediately,
+      // with the proposals kept as the auto-compiler's audit trail.
+      const proposalsBefore = await operator.query(api.master.listProposals, { eventId });
+      expect(proposalsBefore.length).toBe(6);
+      expect(proposalsBefore.every(p => p.state === "approved" && p.decidedBy === "auto-compiler")).toBe(true);
+      const compiled = await operator.query(api.master.latest, { eventId });
+      expect(compiled?.fields.some(f => f.value === "Keynote")).toBe(true);
 
       // Unchanged revision: poll is a cheap metadata check, no new snapshot or proposals.
       await t.action(internal.sync.pollAllSources, {});
       await t.finishAllScheduledFunctions(vi.runAllTimers);
       expect((await operator.query(api.snapshots.list, { sourceId })).length).toBe(1);
 
-      // A content edit under a new revision captures a snapshot and proposes only the changes.
+      // A content edit under a new revision captures a snapshot and recompiles only the changes.
       state.version = 5;
       state.docText = "2026-11-03 09:00 Opening\n2026-11-03 10:00 Keynote with Ava";
       await t.action(internal.sync.pollAllSources, {});
       await t.finishAllScheduledFunctions(vi.runAllTimers);
       expect((await operator.query(api.snapshots.list, { sourceId })).length).toBe(2);
-      const pendingAfter = (await operator.query(api.master.listProposals, { eventId })).filter(p => p.state === "pending");
-      // The retitled session is a new entry identity: its date/time/title
-      // re-propose, unchanged entries propose nothing new.
-      expect(pendingAfter.length).toBe(pendingBefore.length + 3);
-      expect(pendingAfter.some(p => p.proposedValue === "Keynote with Ava")).toBe(true);
-      expect(pendingAfter.filter(p => p.proposedValue === "Opening")).toHaveLength(1);
+      const proposalsAfter = await operator.query(api.master.listProposals, { eventId });
+      // Slot identity: the retitled session stays the same entry, so only
+      // the title recompiles; unchanged entries contribute nothing new.
+      expect(proposalsAfter.length).toBe(proposalsBefore.length + 1);
+      expect(proposalsAfter.filter(p => p.proposedValue === "Opening")).toHaveLength(1);
+      const recompiled = await operator.query(api.master.latest, { eventId });
+      expect(recompiled?.fields.some(f => f.value === "Keynote with Ava")).toBe(true);
     } finally {
       vi.useRealTimers();
     }

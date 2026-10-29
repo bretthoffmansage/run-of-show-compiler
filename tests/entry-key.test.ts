@@ -6,7 +6,7 @@ describe("stable entry identity", () => {
   it("derives the same key for the same logical entry across snapshots", () => {
     const a = entryKeyFor([{ key: "date", value: "2026-11-03" }, { key: "start_time", value: "09:00" }, { key: "title", value: "Opening Welcome!" }]);
     const b = entryKeyFor([{ key: "title", value: "Opening  welcome" }, { key: "start_time", value: "09:00" }, { key: "date", value: "2026-11-03" }]);
-    expect(a).toBe("2026-11-03_09:00_opening-welcome");
+    expect(a).toBe("2026-11-03_09:00");
     expect(b).toBe(a);
   });
 

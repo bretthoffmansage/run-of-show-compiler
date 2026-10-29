@@ -16,6 +16,8 @@ export interface WorkspaceSource {
   originalUrl: string | null;
 }
 
+export type FieldMark = "conflict" | "changed" | null;
+
 export interface WorkspaceEntry {
   id: string;
   date: string | null;
@@ -26,7 +28,16 @@ export interface WorkspaceEntry {
   sourceRevision: string | null;
   changeState: "new" | "changed" | "conflict" | "needs_review" | "approved";
   details: string | null;
-  extras: Array<{ key: string; value: string }>;
+  extras: Array<{ key: string; value: string; mark?: FieldMark }>;
+  titleMark?: FieldMark;
+  timeMark?: FieldMark;
+  speakerMark?: FieldMark;
+  detailsMark?: FieldMark;
+}
+
+/** Marks render as text color, never background: red = sources disagree, pink = fresh change. */
+export function markClass(mark: FieldMark | undefined): string {
+  return mark === "conflict" ? "text-conflict" : mark === "changed" ? "text-changed" : "";
 }
 
 export interface SourceActions {
@@ -63,9 +74,13 @@ function sourceStatus(source: WorkspaceSource): { label: string; tone: "ok" | "w
       ? { label: "Waiting for Google connection (Settings)", tone: "warn" }
       : { label: "Connecting…", tone: "quiet" };
     case "paused": return { label: "Paused", tone: "quiet" };
-    case "needs_reauthorization": return { label: "Needs reauthorization", tone: "bad" };
-    case "access_removed": return { label: "Access removed or file missing", tone: "bad" };
-    case "error": return { label: `Sync error${source.lastError ? ` · ${source.lastError}` : ""}`, tone: "bad" };
+    case "needs_reauthorization": return { label: "Google connection expired — reconnect it in Settings", tone: "bad" };
+    case "access_removed": return { label: "No access — share this file with the studio Google account", tone: "bad" };
+    case "error": switch (source.lastError) {
+      case "office_file": return { label: "Excel/Word file — in Google, use File → Save as Google Sheets (or Docs), then re-add that link", tone: "bad" };
+      case "too_large": return { label: "File too large to sync", tone: "bad" };
+      default: return { label: `Sync error${source.lastError ? ` · ${source.lastError}` : ""}`, tone: "bad" };
+    }
     default: return { label: source.state, tone: "quiet" };
   }
 }
@@ -113,18 +128,18 @@ export function Workspace({ sources, entries, actions }: { sources: WorkspaceSou
               <div key={entry.id}>
                 {dayHeading && <p className="day-heading">{dayHeading}</p>}
                 <article className="master-entry">
-                  <div className="entry-top"><time>{entry.time ?? "Time unresolved"}</time><span className="change-badge">{entry.changeState.replaceAll("_", " ")}</span></div>
-                  <h3>{entry.title}</h3>
-                  {entry.speaker && <p className="entry-speaker">{entry.speaker}</p>}
-                  {entry.details && <p>{entry.details}</p>}
-                  {entry.extras.length > 0 && <ul className="entry-extras">{entry.extras.map(extra => <li key={extra.key}><span>{extra.key.replaceAll("_", " ")}</span>{extra.value}</li>)}</ul>}
+                  <div className="entry-top"><time className={markClass(entry.timeMark)}>{entry.time ?? "Time unresolved"}</time>{entry.changeState !== "approved" && <span className={`change-badge ${markClass(entry.changeState === "conflict" ? "conflict" : "changed")}`}>{entry.changeState === "conflict" ? "sources disagree" : "changed"}</span>}</div>
+                  <h3 className={markClass(entry.titleMark)}>{entry.title}</h3>
+                  {entry.speaker && <p className={`entry-speaker ${markClass(entry.speakerMark)}`}>{entry.speaker}</p>}
+                  {entry.details && <p className={markClass(entry.detailsMark)}>{entry.details}</p>}
+                  {entry.extras.length > 0 && <ul className="entry-extras">{entry.extras.map(extra => <li key={extra.key}><span>{extra.key.replaceAll("_", " ")}</span><span className={markClass(extra.mark)}>{extra.value}</span></li>)}</ul>}
                   <p className="provenance">Source: {entry.sourceName ?? "Operator"}{entry.sourceRevision ? ` · Revision ${entry.sourceRevision}` : ""}</p>
                 </article>
               </div>
             );
           })}
-          <p className="review-note">Approved fields only. Review pending proposals in the decisions panel below.</p>
-        </div> : <div className="empty"><span className="empty-mark" aria-hidden="true">≡</span><h3>No master revision</h3><p>Approved event details will appear here after you review source proposals. No fields have been approved.</p></div>}
+          <p className="review-note"><span className="text-conflict">Red</span> = your sources disagree or the value is unresolved — ask the client. <span className="text-changed">Pink</span> = changed by a source edit in the last 24 hours.</p>
+        </div> : <div className="empty"><span className="empty-mark" aria-hidden="true">≡</span><h3>Nothing compiled yet</h3><p>Connect a source and the run of show compiles itself — no approvals, no buttons.</p></div>}
       </section>
     </div>
   );

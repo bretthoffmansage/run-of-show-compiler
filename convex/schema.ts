@@ -100,6 +100,10 @@ export default defineSchema({
       value: v.string(),
       origin: v.union(v.literal("source"), v.literal("operator")),
       snapshotId: v.optional(v.id("sourceSnapshots")),
+      /** Sources disagree about this value (or it is unresolved): render in red. */
+      conflict: v.optional(v.boolean()),
+      /** When the value last changed due to a source edit: recent changes render in pink. */
+      changedAt: v.optional(v.number()),
     })),
     createdAt: v.number(),
     approvedBy: v.string(),

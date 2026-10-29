@@ -55,11 +55,9 @@ export async function createEvent(form: FormData) {
 export async function addGoogleSource(form: FormData) {
   const client = await clientOrDeny();
   const eventId = id<"events">(form, "eventId");
-  const url = field(form, "url").trim();
-  const provider = url.includes("/spreadsheets/") ? "google_sheets" as const : "google_docs" as const;
   let notice: string | undefined;
   try {
-    await client.mutation(api.sources.create, { eventId, name: field(form, "name"), provider, url });
+    await client.mutation(api.sources.create, { eventId, name: field(form, "name"), url: field(form, "url").trim() });
   } catch (error) {
     notice = cleanError(error);
   }
@@ -108,75 +106,6 @@ export async function removeSource(form: FormData) {
   let notice: string | undefined;
   try {
     await client.mutation(api.sources.remove, { sourceId: id<"sources">(form, "sourceId") });
-  } catch (error) {
-    notice = cleanError(error);
-  }
-  backToEvent(eventId, notice);
-}
-
-export async function approveProposal(form: FormData) {
-  const client = await clientOrDeny();
-  const eventId = id<"events">(form, "eventId");
-  let notice: string | undefined;
-  try {
-    await client.mutation(api.master.approve, { proposalId: id<"masterProposals">(form, "proposalId") });
-  } catch (error) {
-    notice = cleanError(error);
-  }
-  backToEvent(eventId, notice);
-}
-
-export async function rejectProposal(form: FormData) {
-  const client = await clientOrDeny();
-  const eventId = id<"events">(form, "eventId");
-  let notice: string | undefined;
-  try {
-    await client.mutation(api.master.reject, { proposalId: id<"masterProposals">(form, "proposalId") });
-  } catch (error) {
-    notice = cleanError(error);
-  }
-  backToEvent(eventId, notice);
-}
-
-/** Approves every pending field that has no competing pending value. */
-export async function approveNonConflicting(form: FormData) {
-  const client = await clientOrDeny();
-  const eventId = id<"events">(form, "eventId");
-  let notice: string | undefined;
-  try {
-    const proposals = await client.query(api.master.listProposals, { eventId });
-    const pending = proposals.filter(proposal => proposal.state === "pending");
-    const valuesByField = new Map<string, Set<string>>();
-    for (const proposal of pending) {
-      const key = `${proposal.entryKey}\u0000${proposal.fieldKey}`;
-      valuesByField.set(key, (valuesByField.get(key) ?? new Set()).add(proposal.proposedValue));
-    }
-    const safe = pending.filter(proposal => valuesByField.get(`${proposal.entryKey}\u0000${proposal.fieldKey}`)!.size === 1);
-    if (!safe.length) {
-      notice = pending.length ? "Only conflicting fields remain; decide them individually" : "Nothing pending to approve";
-    } else {
-      await client.mutation(api.master.approveMany, { eventId, proposalIds: safe.map(proposal => proposal._id) });
-      notice = `Approved ${safe.length} fields${safe.length < pending.length ? `; ${pending.length - safe.length} conflicting left for review` : ""}`;
-    }
-  } catch (error) {
-    notice = cleanError(error);
-  }
-  backToEvent(eventId, notice);
-}
-
-export async function rejectAllPending(form: FormData) {
-  const client = await clientOrDeny();
-  const eventId = id<"events">(form, "eventId");
-  let notice: string | undefined;
-  try {
-    const proposals = await client.query(api.master.listProposals, { eventId });
-    const pending = proposals.filter(proposal => proposal.state === "pending");
-    if (!pending.length) {
-      notice = "Nothing pending to reject";
-    } else {
-      await client.mutation(api.master.rejectMany, { eventId, proposalIds: pending.map(proposal => proposal._id) });
-      notice = `Rejected ${pending.length} pending fields`;
-    }
   } catch (error) {
     notice = cleanError(error);
   }

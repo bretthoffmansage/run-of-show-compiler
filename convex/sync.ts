@@ -3,7 +3,7 @@ import { action, internalAction, internalMutation, internalQuery, type ActionCtx
 import { internal } from "./_generated/api";
 import { eventAccess } from "./access";
 import { mintAccessToken } from "./google";
-import { GoogleReadError, readGoogleMetadata, readGoogleSource, type GoogleProvider } from "../lib/google-reader";
+import { GoogleReadError, readGoogleMetadata, readGoogleSource } from "../lib/google-reader";
 import { sourceState } from "./schema";
 import type { Doc } from "./_generated/dataModel";
 
@@ -65,23 +65,35 @@ const ERROR_STATE: Record<GoogleReadError["code"], Doc<"sources">["state"] | und
   invalid_source: "error",
   parse_failed: "error",
   too_large: "error",
+  office_file: "error",
   // Transient conditions keep the current state; only the error note updates.
   rate_limited: undefined,
   unavailable: undefined,
 };
 
+/** A drive.google.com link (or a wrongly guessed kind) resolves on first metadata read. */
+export const correctProvider = internalMutation({
+  args: { sourceId: v.id("sources"), provider: v.union(v.literal("google_docs"), v.literal("google_sheets")) },
+  handler: async (ctx, { sourceId, provider }) => {
+    const source = await ctx.db.get(sourceId);
+    if (!source || source.archived || source.provider === "manual" || source.provider === provider) return;
+    await ctx.db.patch(sourceId, { provider });
+  },
+});
+
 async function syncSource(ctx: ActionCtx, source: Doc<"sources">, accessToken: string, force = false): Promise<void> {
   if (source.provider === "manual") return;
-  const provider: GoogleProvider = source.provider;
   try {
     if (!force && source.lastRevision) {
-      const meta = await readGoogleMetadata({ url: source.url, provider, accessToken, fetcher: fetch });
+      const meta = await readGoogleMetadata({ url: source.url, accessToken, fetcher: fetch });
+      if (meta.provider !== source.provider) await ctx.runMutation(internal.sync.correctProvider, { sourceId: source._id, provider: meta.provider });
       if (meta.revision === source.lastRevision) {
         await ctx.runMutation(internal.sync.markChecked, { sourceId: source._id });
         return;
       }
     }
-    const full = await readGoogleSource({ url: source.url, provider, accessToken, fetcher: fetch });
+    const full = await readGoogleSource({ url: source.url, accessToken, fetcher: fetch });
+    if (full.provider !== source.provider) await ctx.runMutation(internal.sync.correctProvider, { sourceId: source._id, provider: full.provider });
     const captured = await ctx.runMutation(internal.snapshots.capture, { sourceId: source._id, revision: full.revision, content: full.text });
     await ctx.runMutation(internal.sync.markSynced, { sourceId: source._id, revision: full.revision });
     if (captured.changed) await ctx.scheduler.runAfter(0, internal.extraction.runSnapshot, { snapshotId: captured.snapshotId });

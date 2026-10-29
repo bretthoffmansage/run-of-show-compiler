@@ -29,29 +29,15 @@ function validText(value: string, max = 4000): boolean {
   return Boolean(value.trim() && value.length <= max);
 }
 
-export const propose = internalMutation({
-  args: {
-    eventId: v.id("events"), snapshotId: v.id("sourceSnapshots"), entryKey: v.string(),
-    fieldKey: fieldName, proposedValue: v.string(), snippet: v.string(),
-    origin: v.union(v.literal("source_exact"), v.literal("inferred")), confidence: v.number(),
-  },
-  handler: async (ctx, args) => {
-    const snapshot = await ctx.db.get(args.snapshotId);
-    const source = snapshot && await ctx.db.get(snapshot.sourceId);
-    const event = await ctx.db.get(args.eventId);
-    if (!snapshot || !source || !event || event.archived || source.archived || source.eventId !== args.eventId) throw new Error("Invalid proposal source");
-    if (!validText(args.entryKey, 200) || !validText(args.proposedValue) || !validText(args.snippet) || !snapshot.content.includes(args.snippet)) throw new Error("Invalid proposal evidence");
-    if (args.origin === "source_exact" && !args.snippet.includes(args.proposedValue)) throw new Error("Invalid proposal evidence");
-    if (args.confidence < 0 || args.confidence > 1) throw new Error("Invalid confidence");
-    return ctx.db.insert("masterProposals", { ...args, state: "pending", createdAt: Date.now() });
-  },
-});
-
 /**
- * Store validated extraction output as pending proposals. Entry identity is
- * derived from content so re-extractions of unchanged material are quiet:
- * fields matching the approved master or an identical pending proposal are
- * skipped, and nothing here touches approved revisions.
+ * Store validated extraction output and compile it into the master
+ * immediately — zero approval clicks. Every applied field keeps its proposal
+ * as the audit record (state "approved", decided by the auto-compiler).
+ * When sources disagree about a field, the most recently captured source
+ * wins the cell and the field is flagged `conflict` (rendered red); values
+ * that changed from the prior compile carry `changedAt` (rendered pink while
+ * fresh). Inconsistencies never block compilation — they are visual cues for
+ * the humans running the event.
  */
 export const ingestExtraction = internalMutation({
   args: {
@@ -65,10 +51,12 @@ export const ingestExtraction = internalMutation({
     const event = await ctx.db.get(eventId);
     if (!snapshot || !source || !event || event.archived || source.archived || source.eventId !== eventId) throw new Error("Invalid extraction target");
     const latestRevision = await ctx.db.query("masterRevisions").withIndex("by_event", q => q.eq("eventId", eventId)).order("desc").first();
-    const approved = new Map((latestRevision?.fields ?? []).map(field => [`${field.entryKey}\u0000${field.fieldKey}`, field.value]));
+    const priorFields = new Map((latestRevision?.fields ?? []).map(field => [`${field.entryKey}\u0000${field.fieldKey}`, field]));
     const existing = await ctx.db.query("masterProposals").withIndex("by_event", q => q.eq("eventId", eventId)).collect();
     const pendingSet = new Set(existing.filter(p => p.state === "pending").map(p => `${p.entryKey}\u0000${p.fieldKey}\u0000${p.proposedValue}`));
     const entryKeys = uniqueEntryKeys(items.map(item => entryKeyFor(item.fields)));
+    const now = Date.now();
+    const createdIds: Id<"masterProposals">[] = [];
     let created = 0;
     let skipped = 0;
     for (let index = 0; index < items.length; index++) {
@@ -82,19 +70,71 @@ export const ingestExtraction = internalMutation({
           (field.origin !== "source_exact" || field.evidence.snippet.includes(field.value)) &&
           field.confidence >= 0 && field.confidence <= 1;
         if (!valid) { skipped++; continue; }
-        if (approved.get(`${entryKey}\u0000${field.key}`) === field.value) { skipped++; continue; }
+        // A value matching the master is quiet — unless that field is flagged
+        // as a conflict, in which case the agreement must recompile so the
+        // red mark can clear.
+        const priorField = priorFields.get(`${entryKey}\u0000${field.key}`);
+        if (priorField?.value === field.value && !priorField.conflict) { skipped++; continue; }
         const dedupeKey = `${entryKey}\u0000${field.key}\u0000${field.value}`;
         if (pendingSet.has(dedupeKey)) { skipped++; continue; }
         pendingSet.add(dedupeKey);
-        await ctx.db.insert("masterProposals", {
+        const proposalId = await ctx.db.insert("masterProposals", {
           eventId, snapshotId, entryKey, fieldKey: field.key, proposedValue: field.value,
           snippet: field.evidence.snippet, origin: field.origin, confidence: field.confidence,
-          state: "pending", createdAt: Date.now(),
+          state: "pending", createdAt: now,
         });
+        createdIds.push(proposalId);
         created++;
       }
     }
-    return { created, skipped };
+    if (!created) return { created, skipped, applied: 0 };
+
+    // ── Auto-compile the affected fields ────────────────────────────────────
+    const createdProposals = (await Promise.all(createdIds.map(id => ctx.db.get(id)))).filter((p): p is Doc<"masterProposals"> => p !== null);
+    const affectedKeys = new Set(createdProposals.map(p => `${p.entryKey}\u0000${p.fieldKey}`));
+    // Candidate pool: every non-rejected proposal for an affected field, across all sources.
+    const candidates = [...existing, ...createdProposals].filter(p => p.state !== "rejected" && affectedKeys.has(`${p.entryKey}\u0000${p.fieldKey}`));
+    const snapshotIds = [...new Set(candidates.map(p => p.snapshotId))];
+    const snapshotDocs = await Promise.all(snapshotIds.map(id => ctx.db.get(id)));
+    const snapshotInfo = new Map(snapshotIds.map((id, i) => [id, snapshotDocs[i]]));
+    const newFields: Doc<"masterRevisions">["fields"] = [];
+    for (const key of affectedKeys) {
+      const [entryKey, fieldKey] = key.split("\u0000");
+      const forKey = candidates.filter(p => p.entryKey === entryKey && p.fieldKey === fieldKey);
+      // Latest candidate per source decides that source's current claim.
+      // Candidates are ordered oldest-first ([...existing, ...created]), so a
+      // timestamp tie resolves toward the newer insertion.
+      const latestBySource = new Map<string, Doc<"masterProposals">>();
+      for (const candidate of forKey) {
+        const capturedAt = snapshotInfo.get(candidate.snapshotId)?.capturedAt ?? candidate.createdAt;
+        const sourceKey = String(snapshotInfo.get(candidate.snapshotId)?.sourceId ?? candidate.snapshotId);
+        const incumbent = latestBySource.get(sourceKey);
+        const incumbentAt = incumbent ? (snapshotInfo.get(incumbent.snapshotId)?.capturedAt ?? incumbent.createdAt) : -1;
+        if (!incumbent || capturedAt > incumbentAt || (capturedAt === incumbentAt && candidate.createdAt >= incumbent.createdAt)) latestBySource.set(sourceKey, candidate);
+      }
+      const claims = [...latestBySource.values()];
+      const conflict = new Set(claims.map(c => c.proposedValue)).size > 1;
+      // Most recently captured source wins the cell; conflict renders red.
+      const winner = claims.reduce((best, c) => {
+        const bestAt = snapshotInfo.get(best.snapshotId)?.capturedAt ?? best.createdAt;
+        const at = snapshotInfo.get(c.snapshotId)?.capturedAt ?? c.createdAt;
+        return at > bestAt || (at === bestAt && c.createdAt >= best.createdAt) ? c : best;
+      });
+      const prior = priorFields.get(key);
+      if (prior && prior.value === winner.proposedValue && Boolean(prior.conflict) === conflict) continue;
+      newFields.push({
+        entryKey, fieldKey, value: winner.proposedValue, origin: "source", snapshotId: winner.snapshotId,
+        conflict: conflict || undefined,
+        changedAt: prior && prior.value !== winner.proposedValue ? now : prior?.changedAt,
+      });
+    }
+    let masterRevisionId: Id<"masterRevisions"> | null = null;
+    if (newFields.length) masterRevisionId = await nextRevision(ctx, eventId, "auto-compiler", newFields);
+    for (const proposal of createdProposals) {
+      await ctx.db.patch(proposal._id, { state: "approved", decidedBy: "auto-compiler", decidedAt: now });
+      await ctx.db.insert("masterDecisions", { eventId, proposalId: proposal._id, kind: "approve", actor: "auto-compiler", at: now, ...(masterRevisionId ? { masterRevisionId } : {}) });
+    }
+    return { created, skipped, applied: newFields.length };
   },
 });
 
@@ -133,78 +173,6 @@ async function nextRevision(ctx: MutationCtx, eventId: Id<"events">, actor: stri
   }
   return ctx.db.insert("masterRevisions", { eventId, number: (previous?.number ?? 0) + 1, fields, createdAt: Date.now(), approvedBy: actor });
 }
-
-export const approve = mutation({
-  args: { proposalId: v.id("masterProposals") },
-  handler: async (ctx, { proposalId }) => {
-    const proposal = await ctx.db.get(proposalId);
-    if (!proposal) throw new Error("Access denied");
-    const { userId } = await eventAccess(ctx, proposal.eventId, "edit");
-    if (proposal.state !== "pending") throw new Error("Proposal already decided");
-    const masterRevisionId = await nextRevision(ctx, proposal.eventId, userId, [{ entryKey: proposal.entryKey, fieldKey: proposal.fieldKey, value: proposal.proposedValue, origin: "source", snapshotId: proposal.snapshotId }]);
-    await ctx.db.patch(proposalId, { state: "approved", decidedBy: userId, decidedAt: Date.now() });
-    await ctx.db.insert("masterDecisions", { eventId: proposal.eventId, proposalId, kind: "approve", actor: userId, at: Date.now(), masterRevisionId });
-    return masterRevisionId;
-  },
-});
-
-/** Batch approval: one new master revision covering every decided field. */
-export const approveMany = mutation({
-  args: { eventId: v.id("events"), proposalIds: v.array(v.id("masterProposals")) },
-  handler: async (ctx, { eventId, proposalIds }) => {
-    const { userId } = await eventAccess(ctx, eventId, "edit");
-    if (!proposalIds.length || proposalIds.length > 500) throw new Error("Invalid batch size");
-    const proposals: Doc<"masterProposals">[] = [];
-    for (const proposalId of [...new Set(proposalIds)]) {
-      const proposal = await ctx.db.get(proposalId);
-      if (!proposal || proposal.eventId !== eventId) throw new Error("Access denied");
-      if (proposal.state === "pending") proposals.push(proposal);
-    }
-    if (!proposals.length) return null;
-    const targets = new Map<string, string>();
-    for (const proposal of proposals) {
-      const key = `${proposal.entryKey}\u0000${proposal.fieldKey}`;
-      const prior = targets.get(key);
-      if (prior !== undefined && prior !== proposal.proposedValue) throw new Error("Conflicting proposals in one batch; decide those fields individually");
-      targets.set(key, proposal.proposedValue);
-    }
-    const masterRevisionId = await nextRevision(ctx, eventId, userId, proposals.map(proposal => ({
-      entryKey: proposal.entryKey, fieldKey: proposal.fieldKey, value: proposal.proposedValue, origin: "source" as const, snapshotId: proposal.snapshotId,
-    })));
-    for (const proposal of proposals) {
-      await ctx.db.patch(proposal._id, { state: "approved", decidedBy: userId, decidedAt: Date.now() });
-      await ctx.db.insert("masterDecisions", { eventId, proposalId: proposal._id, kind: "approve", actor: userId, at: Date.now(), masterRevisionId });
-    }
-    return masterRevisionId;
-  },
-});
-
-export const reject = mutation({
-  args: { proposalId: v.id("masterProposals") },
-  handler: async (ctx, { proposalId }) => {
-    const proposal = await ctx.db.get(proposalId);
-    if (!proposal) throw new Error("Access denied");
-    const { userId } = await eventAccess(ctx, proposal.eventId, "edit");
-    if (proposal.state !== "pending") throw new Error("Proposal already decided");
-    await ctx.db.patch(proposalId, { state: "rejected", decidedBy: userId, decidedAt: Date.now() });
-    await ctx.db.insert("masterDecisions", { eventId: proposal.eventId, proposalId, kind: "reject", actor: userId, at: Date.now() });
-  },
-});
-
-export const rejectMany = mutation({
-  args: { eventId: v.id("events"), proposalIds: v.array(v.id("masterProposals")) },
-  handler: async (ctx, { eventId, proposalIds }) => {
-    const { userId } = await eventAccess(ctx, eventId, "edit");
-    if (!proposalIds.length || proposalIds.length > 500) throw new Error("Invalid batch size");
-    for (const proposalId of [...new Set(proposalIds)]) {
-      const proposal = await ctx.db.get(proposalId);
-      if (!proposal || proposal.eventId !== eventId) throw new Error("Access denied");
-      if (proposal.state !== "pending") continue;
-      await ctx.db.patch(proposalId, { state: "rejected", decidedBy: userId, decidedAt: Date.now() });
-      await ctx.db.insert("masterDecisions", { eventId, proposalId, kind: "reject", actor: userId, at: Date.now() });
-    }
-  },
-});
 
 export const manualEdit = mutation({
   args: { eventId: v.id("events"), entryKey: v.string(), fieldKey: fieldName, value: v.string() },

@@ -46,8 +46,8 @@ describe("protected event and source metadata", () => {
     const bob = t.withIdentity({ subject: "bob", issuer: "https://identity.test", tokenIdentifier: "bob-token", email: "bob@test.sage" });
     const org = await alice.mutation(api.organizations.create, { name: "SAGE" });
     const event = await alice.mutation(api.events.create, { organizationId: org, name: "Summit" });
-    await expect(alice.mutation(api.sources.create, { eventId: event, name: "Bad", provider: "google_docs", url: "https://docs.google.com.evil.test/document/d/abc" })).rejects.toThrow("Invalid Google source URL");
-    await expect(alice.mutation(api.sources.create, { eventId: event, name: "Bad", provider: "google_sheets", url: "javascript:alert(1)" })).rejects.toThrow("Invalid Google source URL");
+    await expect(alice.mutation(api.sources.create, { eventId: event, name: "Bad", provider: "google_docs", url: "https://docs.google.com.evil.test/document/d/abc" })).rejects.toThrow("doesn't look like a Google");
+    await expect(alice.mutation(api.sources.create, { eventId: event, name: "Bad", provider: "google_sheets", url: "javascript:alert(1)" })).rejects.toThrow("doesn't look like a Google");
 
     await t.run(async ctx => { await ctx.db.insert("memberships", { organizationId: org, userId: "bob-token", role: "viewer" }); });
     expect(await bob.query(api.events.list, { organizationId: org })).toHaveLength(1);

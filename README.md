@@ -4,11 +4,11 @@ Internal SAGE operations tool that connects an event's client-owned source docum
 
 **How it works**
 
-1. Work is organized **Organization → Event**. Each event owns its sources, snapshots, proposals, and approved master.
+1. Work is organized **Organization → Event**. Each event owns its sources, snapshots, and compiled master.
 2. Live sources are read through one dedicated Google account (studio@poweredbysage.com) connected once in **Settings**; clients simply share their documents with that account. Its OAuth refresh token is stored sealed (AES-256-GCM) server-side in Convex and never reaches the browser.
 3. A Convex cron reconciles every live source against Google every 2 minutes (cheap metadata probe; full read only when the file's revision changed). Every change is stored as an immutable snapshot with revision metadata.
 4. Changed snapshots run through Claude-powered extraction — via the Vercel AI Gateway's OpenAI-compatible route when `AI_GATEWAY_API_KEY` is set (`lib/gateway-extraction.ts`; streaming, provider-prefixed model slugs like `anthropic/claude-sonnet-5.5`), else the direct Anthropic API (`lib/anthropic-extraction.ts`) — always validated by `lib/extraction.ts`. Every extracted field carries a verbatim source snippet; output that cannot be traced to the source text is rejected. Source documents are treated strictly as data — embedded instructions are never followed.
-5. Extraction results become **pending proposals**. Nothing enters the approved master without operator approval; conflicting values must be decided individually. Every approval creates an immutable master revision with full audit history, exportable as HTML.
+5. Extraction results **compile straight into the master — zero approval clicks**. When sources disagree about a field, the compile proceeds anyway: the most recently captured source wins the cell and the field is marked **red** (sources disagree — ask the client). Values changed by a recent source edit are marked **pink** for 24 hours. Marks are text-color visual cues for the humans running the event, not an approval queue. Every compile creates an immutable master revision with full audit history, exportable as HTML; operators can still correct values manually (an edit, not an approval).
 
 **Stack:** Next.js (App Router) on Vercel · Convex (data, crons, actions) · Clerk (Google SSO) · Claude via Vercel AI Gateway (extraction).
 
@@ -30,7 +30,7 @@ Create `.env.local` from `.env.example` (Clerk dev-instance keys + the Convex UR
 npm run check   # repo safety, typecheck, lint, tests, build
 ```
 
-Tests cover the authorization contract, snapshot immutability/dedup, the extraction validator (including prompt-injection and no-invention rejection), the sealed-token crypto, and an end-to-end mocked Google sync → extraction → proposal → approval flow.
+Tests cover the authorization contract, snapshot immutability/dedup, the extraction validator (including prompt-injection and no-invention rejection), the sealed-token crypto, and an end-to-end mocked Google sync → extraction → zero-click compile flow (including conflict and change marking).
 
 ## Deployment
 
@@ -42,9 +42,9 @@ See [DEPLOYMENT.md](DEPLOYMENT.md) for the one-time go-live checklist (Convex Cl
 
 - Sign-in: Clerk (Google SSO). Convex additionally enforces a fail-closed server-side email/domain allowlist on **every** function call; organization/event data is membership-scoped.
 - Google access: read-only Drive scope on one dedicated account, connected by an operator through OAuth. No client credentials, no password storage; disconnect revokes the token at Google and deletes the sealed copy.
-- AI: the model sees only source text (as data) and reports through a schema; the validator rejects any field whose snippet is not verbatim in the source. Approval is always human.
+- AI: the model sees only source text (as data) and reports through a schema; the validator rejects any field whose snippet is not verbatim in the source — invalid output is skipped, never compiled. Compilation is automatic; every compiled value stays traceable to its source snapshot, and the immutable revision history records every change.
 - Secrets live in Convex/Vercel environment configuration — never in the repo, logs, or exports.
 
 ## Repo notes
 
-`_forgeshell_archive/` preserves the original autonomous-builder planning/audit documents (including the PRD at `_forgeshell_archive/raw_prd/Run_of_Show_Compiler_PRD.md`) for traceability. Known v1 behaviors: retitling a session creates a new entry identity (old pending proposals are rejected by the operator); entries removed from a source are not yet auto-flagged; Airtable and file uploads are planned connectors — paste their contents as a static source meanwhile.
+`_forgeshell_archive/` preserves the original autonomous-builder planning/audit documents (including the PRD at `_forgeshell_archive/raw_prd/Run_of_Show_Compiler_PRD.md`) for traceability. Known behaviors: entry identity is the date + start-time slot (a retitled session stays the same entry and shows as a pink change; two sources disagreeing about a slot show as a red conflict); entries removed from a source are not yet auto-flagged; Airtable and file uploads are planned connectors — paste their contents as a static source meanwhile. The product direction (Google Sheet playbook output, split-screen source/playbook UI) is specced in `PLAYBOOK_SPEC.md`.
