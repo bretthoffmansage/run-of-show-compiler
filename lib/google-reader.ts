@@ -2,7 +2,7 @@
 import { parseGoogleSourceUrl, type DetectedProvider } from "./google-url";
 
 export type GoogleProvider = "google_docs" | "google_sheets";
-export type GoogleReadErrorCode = "invalid_source" | "needs_reauthorization" | "access_removed" | "rate_limited" | "unavailable" | "parse_failed" | "too_large" | "office_file";
+export type GoogleReadErrorCode = "invalid_source" | "needs_reauthorization" | "access_removed" | "rate_limited" | "unavailable" | "parse_failed" | "too_large" | "office_file" | "api_disabled" | "scope_insufficient";
 
 export class GoogleReadError extends Error {
   constructor(readonly code: GoogleReadErrorCode) {
@@ -34,6 +34,22 @@ function fileIdFromUrl(input: string): string {
   return parsed.fileId;
 }
 
+/**
+ * A Google 403 means three very different things. Telling them apart is the
+ * difference between "share the file" (wrong advice two times out of three)
+ * and the fix that actually works, so read the error body:
+ * - the Drive API is disabled in the app's own Cloud project, or
+ * - the stored grant is missing the Drive scope (a consent box was unchecked), or
+ * - the connected account really cannot see this file.
+ */
+async function classify403(response: Response): Promise<GoogleReadErrorCode> {
+  let body = "";
+  try { body = (await response.text()).slice(0, 4000); } catch { return "access_removed"; }
+  if (/accessNotConfigured|SERVICE_DISABLED|has not been used in project/i.test(body)) return "api_disabled";
+  if (/insufficient[\s\S]*scope|ACCESS_TOKEN_SCOPE_INSUFFICIENT|insufficientPermissions/i.test(body)) return "scope_insufficient";
+  return "access_removed";
+}
+
 async function jsonFromGoogle(url: string, token: string, fetcher: Fetcher): Promise<Record<string, unknown>> {
   let response: Response;
   try {
@@ -43,7 +59,8 @@ async function jsonFromGoogle(url: string, token: string, fetcher: Fetcher): Pro
   }
   if (!response.ok) {
     if (response.status === 401) throw new GoogleReadError("needs_reauthorization");
-    if (response.status === 403 || response.status === 404) throw new GoogleReadError("access_removed");
+    if (response.status === 403) throw new GoogleReadError(await classify403(response));
+    if (response.status === 404) throw new GoogleReadError("access_removed");
     if (response.status === 429) throw new GoogleReadError("rate_limited");
     throw new GoogleReadError("unavailable");
   }
@@ -102,7 +119,9 @@ export async function readGoogleMetadata(args: { url: string; accessToken: strin
   const { url, accessToken, fetcher } = args;
   const fileId = fileIdFromUrl(url);
   if (!accessToken) throw new GoogleReadError("needs_reauthorization");
-  const meta = await jsonFromGoogle(`https://www.googleapis.com/drive/v3/files/${fileId}?fields=id,mimeType,version,modifiedTime,trashed`, accessToken, fetcher);
+  // supportsAllDrives: without it the Drive API answers 404 for any file on
+  // a shared drive, which reads as "no access" even for the account's own files.
+  const meta = await jsonFromGoogle(`https://www.googleapis.com/drive/v3/files/${fileId}?fields=id,mimeType,version,modifiedTime,trashed&supportsAllDrives=true`, accessToken, fetcher);
   if (meta.id !== fileId || meta.trashed === true) throw new GoogleReadError("access_removed");
   const mime = typeof meta.mimeType === "string" ? meta.mimeType : "";
   const provider: DetectedProvider | undefined = NATIVE_MIME[mime];

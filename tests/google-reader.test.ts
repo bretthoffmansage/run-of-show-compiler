@@ -38,6 +38,8 @@ describe("server-use Google read adapter", () => {
     expect(calls).toHaveLength(2);
     expect(calls.every(c => c.authorization === "Bearer dummy-secret")).toBe(true);
     expect(calls[0].url).toMatch(/^https:\/\/www\.googleapis\.com\/drive\/v3\/files\/abc123def456/);
+    // Shared-drive files 404 without this flag, which would read as lost access.
+    expect(calls[0].url).toContain("supportsAllDrives=true");
     expect(calls[1].url).toMatch(/^https:\/\/docs\.googleapis\.com\/v1\/documents\/abc123def456/);
   });
 
@@ -77,10 +79,15 @@ describe("server-use Google read adapter", () => {
     const noFetch = mockFetch([], calls);
     await expect(readGoogleSource({ url: "https://docs.google.com.evil.test/document/d/abc123def456", accessToken: "dummy-secret", fetcher: noFetch })).rejects.toMatchObject({ code: "invalid_source" });
     expect(calls).toHaveLength(0);
-    for (const [status, code] of [[401, "needs_reauthorization"], [403, "access_removed"], [429, "rate_limited"], [503, "unavailable"]] as const) {
-      const fetcher = mockFetch([{ status, body: { error: "dummy-secret" } }], []);
+    for (const [status, code] of [[401, "needs_reauthorization"], [403, "access_removed"], [404, "access_removed"], [429, "rate_limited"], [503, "unavailable"]] as const) {
+      const fetcher = mockFetch([{ status, body: { error: "denied" } }], []);
       await expect(readGoogleSource({ url: "https://docs.google.com/document/d/abc123def456/edit", accessToken: "dummy-secret", fetcher })).rejects.toMatchObject({ code });
     }
+    // The three flavors of 403 get told apart by the error body.
+    const disabled = mockFetch([{ status: 403, body: { error: { errors: [{ reason: "accessNotConfigured" }], message: "Google Drive API has not been used in project 12345 before or it is disabled." } } }], []);
+    await expect(readGoogleSource({ url: "https://docs.google.com/document/d/abc123def456/edit", accessToken: "dummy-secret", fetcher: disabled })).rejects.toMatchObject({ code: "api_disabled" });
+    const scoped = mockFetch([{ status: 403, body: { error: { message: "Request had insufficient authentication scopes.", status: "PERMISSION_DENIED" } } }], []);
+    await expect(readGoogleSource({ url: "https://docs.google.com/document/d/abc123def456/edit", accessToken: "dummy-secret", fetcher: scoped })).rejects.toMatchObject({ code: "scope_insufficient" });
     const huge = mockFetch([{ body: { ...metadata("application/vnd.google-apps.document"), padding: "x".repeat(9_000_000) } }], []);
     await expect(readGoogleSource({ url: "https://docs.google.com/document/d/abc123def456/edit", accessToken: "dummy-secret", fetcher: huge })).rejects.toMatchObject({ code: "too_large" });
     expect(new GoogleReadError("unavailable").message).not.toContain("dummy-secret");

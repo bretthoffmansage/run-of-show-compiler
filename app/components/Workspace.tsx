@@ -79,6 +79,8 @@ function sourceStatus(source: WorkspaceSource): { label: string; tone: "ok" | "w
     case "error": switch (source.lastError) {
       case "office_file": return { label: "Excel/Word file — in Google, use File → Save as Google Sheets (or Docs), then re-add that link", tone: "bad" };
       case "too_large": return { label: "File too large to sync", tone: "bad" };
+      case "api_disabled": return { label: "The Google Drive API is turned off for this app's Google Cloud project — enable \"Google Drive API\" at console.cloud.google.com, then hit Refresh now", tone: "bad" };
+      case "scope_insufficient": return { label: "The Google connection is missing Drive permission — disconnect and reconnect in Settings, keeping every checkbox checked on Google's consent screen", tone: "bad" };
       default: return { label: `Sync error${source.lastError ? ` · ${source.lastError}` : ""}`, tone: "bad" };
     }
     default: return { label: source.state, tone: "quiet" };

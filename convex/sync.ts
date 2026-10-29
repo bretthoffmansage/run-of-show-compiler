@@ -66,6 +66,8 @@ const ERROR_STATE: Record<GoogleReadError["code"], Doc<"sources">["state"] | und
   parse_failed: "error",
   too_large: "error",
   office_file: "error",
+  api_disabled: "error",
+  scope_insufficient: "error",
   // Transient conditions keep the current state; only the error note updates.
   rate_limited: undefined,
   unavailable: undefined,
