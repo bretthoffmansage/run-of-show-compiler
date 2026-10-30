@@ -57,6 +57,9 @@ export const ingestExtraction = internalMutation({
     const pendingSet = new Set(existing.filter(p => p.state === "pending").map(p => `${p.entryKey}\u0000${p.fieldKey}\u0000${p.proposedValue}`));
     const entryKeys = uniqueEntryKeys(items.map(item => entryKeyFor(item.fields)));
     const now = Date.now();
+    // Whitespace-tolerant provenance (tabs vs spaces in spreadsheet dumps).
+    const squash = (text: string) => text.replace(/\s+/g, " ");
+    const normalizedContent = squash(snapshot.content);
     const createdIds: Id<"masterProposals">[] = [];
     let created = 0;
     let skipped = 0;
@@ -67,8 +70,8 @@ export const ingestExtraction = internalMutation({
           field.evidence.sourceId === String(source._id) &&
           field.evidence.revision === snapshot.revision &&
           validText(entryKey, 200) && validText(field.value) && validText(field.evidence.snippet) &&
-          snapshot.content.includes(field.evidence.snippet) &&
-          (field.origin !== "source_exact" || field.evidence.snippet.includes(field.value)) &&
+          (snapshot.content.includes(field.evidence.snippet) || normalizedContent.includes(squash(field.evidence.snippet))) &&
+          (field.origin !== "source_exact" || field.evidence.snippet.includes(field.value) || squash(field.evidence.snippet).includes(squash(field.value))) &&
           field.confidence >= 0 && field.confidence <= 1;
         if (!valid) { skipped++; continue; }
         // Every valid field of this snapshot gets its proposal: the compile
@@ -109,7 +112,16 @@ export const ingestExtraction = internalMutation({
       }
     }
     const liveSnapshots = new Set([...latestSnapshotBySource.values()].map(entry => String(entry.snapshotId)));
-    const candidates = allProposals.filter(p => liveSnapshots.has(String(p.snapshotId)));
+    // Within a live snapshot, only its NEWEST extraction batch counts (one
+    // ingest stamps all its proposals with one createdAt): re-extracting a
+    // snapshot under new rules fully replaces what the old rules produced.
+    const latestBatch = new Map<string, number>();
+    for (const proposal of allProposals) {
+      const snap = String(proposal.snapshotId);
+      if (!liveSnapshots.has(snap)) continue;
+      latestBatch.set(snap, Math.max(latestBatch.get(snap) ?? 0, proposal.createdAt));
+    }
+    const candidates = allProposals.filter(p => liveSnapshots.has(String(p.snapshotId)) && p.createdAt === latestBatch.get(String(p.snapshotId)));
     const keys = [...new Set(candidates.map(p => `${p.entryKey}\u0000${p.fieldKey}`))];
     const newFields: Doc<"masterRevisions">["fields"] = [];
     for (const key of keys) {

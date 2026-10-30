@@ -51,7 +51,7 @@ export const snapshotContext = internalQuery({
  * day-header dates): the reaper cron then re-extracts every source's latest
  * snapshot under the new rules and the compile rebuilds from the result.
  */
-export const EXTRACTION_PROMPT_VERSION = 3;
+export const EXTRACTION_PROMPT_VERSION = 4;
 
 export const startRun = internalMutation({
   args: {
@@ -122,39 +122,51 @@ export const runSnapshot = internalAction({
       // failures are kept per-chunk: whatever extracted still compiles.
       // Chunks whose extraction output overflows the model's token cap
       // (dense spreadsheets) are bisected and retried at a smaller size.
-      // Smaller chunks keep each model call comfortably inside the 100-item
-      // report schema, so complete coverage never silently trims.
-      const deadline = Date.now() + 7 * 60 * 1000;
-      const queue = chunkByLines(context.content, 16_000).slice(0, 32).map(chunk => ({ chunk, depth: 0 }));
+      // Complete coverage: 10KB chunks stay far inside the 100-item report
+      // schema (a dense cue sheet is ~10 rows/KB), several chunks extract in
+      // parallel so the whole document fits the time budget, and chunks that
+      // still overflow the model's output bisect and retry.
+      const deadline = Date.now() + 8 * 60 * 1000;
+      const queue = chunkByLines(context.content, 10_000).slice(0, 48).map(chunk => ({ chunk, depth: 0, retries: 0 }));
       const items: ExtractionOutput["items"] = [];
       let attempted = 0;
       let failedChunks = 0;
       let skippedChunks = 0;
       let firstError: string | null = null;
-      const MIN_SPLIT_BYTES = 4_000;
-      const MAX_TASKS = 60;
-      while (queue.length) {
-        const task = queue.shift()!;
-        if (Date.now() > deadline || attempted >= MAX_TASKS) { skippedChunks++; continue; }
-        attempted++;
-        try {
-          const result = await extractFromExcerpt({ sourceId: context.sourceId, revision: context.revision, text: task.chunk }, adapter);
-          items.push(...result.items);
-        } catch (error) {
-          const message = error instanceof Error ? error.message : "chunk failed";
-          const dense = /truncated|non-JSON/i.test(message);
-          const bytes = new TextEncoder().encode(task.chunk).length;
-          if (dense && bytes > MIN_SPLIT_BYTES && task.depth < 4) {
-            // Halve the chunk: smaller input → smaller output → fits the cap.
-            const halves = chunkByLines(task.chunk, Math.max(MIN_SPLIT_BYTES, Math.ceil(bytes / 2)));
-            queue.unshift(...halves.map(half => ({ chunk: half, depth: task.depth + 1 })));
-            continue;
+      const MIN_SPLIT_BYTES = 2_500;
+      const MAX_TASKS = 80;
+      const CONCURRENCY = 5;
+      const worker = async () => {
+        while (queue.length) {
+          const task = queue.shift()!;
+          if (Date.now() > deadline || attempted >= MAX_TASKS) { skippedChunks++; continue; }
+          attempted++;
+          try {
+            const result = await extractFromExcerpt({ sourceId: context.sourceId, revision: context.revision, text: task.chunk }, adapter);
+            items.push(...result.items);
+          } catch (error) {
+            const message = error instanceof Error ? error.message : "chunk failed";
+            const dense = /truncated|non-JSON/i.test(message);
+            const bytes = new TextEncoder().encode(task.chunk).length;
+            if (dense && bytes > MIN_SPLIT_BYTES && task.depth < 4) {
+              // Halve the chunk: smaller input → smaller output → fits the cap.
+              const halves = chunkByLines(task.chunk, Math.max(MIN_SPLIT_BYTES, Math.ceil(bytes / 2)));
+              queue.unshift(...halves.map(half => ({ chunk: half, depth: task.depth + 1, retries: 0 })));
+              continue;
+            }
+            // Transient provider trouble (rate limits, 5xx): back of the
+            // queue, try again — a 429 must not silently cost rows.
+            if (/\((429|5\d\d)\)/.test(message) && task.retries < 2) {
+              queue.push({ ...task, retries: task.retries + 1 });
+              continue;
+            }
+            failedChunks++;
+            firstError ??= message.slice(0, 300);
           }
-          failedChunks++;
-          firstError ??= message.slice(0, 300);
         }
-      }
-      const limited = items.slice(0, 400);
+      };
+      await Promise.all(Array.from({ length: CONCURRENCY }, () => worker()));
+      const limited = items.slice(0, 600);
       if (!limited.length && (failedChunks || skippedChunks)) {
         await ctx.runMutation(internal.extraction.finishRun, { runId, status: "failed", error: firstError ?? `ran out of time (${skippedChunks} chunks unprocessed)` });
         return;

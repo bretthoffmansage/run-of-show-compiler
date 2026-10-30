@@ -105,12 +105,16 @@ export interface PagDay {
 
 export interface PagModel {
   days: PagDay[];
-  /** Missing a day or a parseable time: listed under the grid, never dumped
-   * into another day's column. */
-  unplaced: PagBlock[];
   /** Sorted distinct minute boundaries that define the grid rows. */
   rail: Array<{ minute: number; label: string }>;
 }
+
+/**
+ * Everything renders somewhere. Entries whose day the sources never state
+ * get their own clearly-flagged LAST column — never mixed into a real day,
+ * never hidden.
+ */
+export const UNDATED_DAY = "Day not stated — check source";
 
 const MONTHS = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"];
 
@@ -150,8 +154,9 @@ const META_FIELDS: Array<{ key: string; label: string }> = [
   { key: "duration", label: "Duration" },
   { key: "audience", label: "Audience" },
   { key: "dependency", label: "Depends on" },
-  { key: "time_zone", label: "Time zone" },
-  { key: "type", label: "Type" },
+  // time_zone is deliberately NOT rendered per block: it is one fact about
+  // the document (usually a column header), and stamping it on every box is
+  // duplication, not coverage. Times themselves are already verbatim.
 ];
 const AV_FIELDS: Array<{ key: string; label: string }> = [
   { key: "audio", label: "Audio" },
@@ -193,10 +198,13 @@ export function pagModel(fields: CompiledField[], now: number): PagModel {
   // A block that names no day is NEVER dumped into another day's column: it
   // goes to the unplaced list under the grid.
   const dayGroups = new Map<string, { date: string; dayNumber: number | null; appearance: number; blocks: PagBlock[] }>();
-  const unplaced: PagBlock[] = [];
+  const undated: PagBlock[] = [];
   let appearance = 0;
   for (const block of blocks) {
-    if (block.date === null || block.startMin === null) { unplaced.push(block); continue; }
+    // A dated entry always joins its day, timed or not (a missing time shows
+    // the red flag inside the block). Only a dateless entry leaves the grid
+    // columns — into the flagged last column, never another day's.
+    if (block.date === null) { undated.push(block); continue; }
     let group = dayGroups.get(block.date);
     if (!group) {
       group = { date: block.date, dayNumber: block.dayNumber, appearance: appearance++, blocks: [] };
@@ -231,8 +239,9 @@ export function pagModel(fields: CompiledField[], now: number): PagModel {
       ((dateOrdinal(a.date) ?? BIG) - (dateOrdinal(b.date) ?? BIG)) ||
       (a.appearance - b.appearance))
     .map(group => ({ date: group.date, dayNumber: group.dayNumber, blocks: group.blocks }));
+  if (undated.length) days.push({ date: UNDATED_DAY, dayNumber: null, blocks: undated });
   for (const day of days) {
-    day.blocks.sort((a, b) => (a.startMin! - b.startMin!) || a.entryKey.localeCompare(b.entryKey));
+    day.blocks.sort((a, b) => ((a.startMin ?? BIG) - (b.startMin ?? BIG)) || a.entryKey.localeCompare(b.entryKey));
     // Duplicate rows (same start, same title bar punctuation/case) collapse
     // to the richer block — merged day variants would otherwise double up.
     const slug = (block: PagBlock) => `${block.startMin}\u0000${block.title.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim()}`;
@@ -259,7 +268,7 @@ export function pagModel(fields: CompiledField[], now: number): PagModel {
     }
   }
   const rail = [...labels.entries()].map(([minute, label]) => ({ minute, label })).sort((a, b) => a.minute - b.minute);
-  return { days, unplaced, rail };
+  return { days, rail };
 }
 
 // ── Rendering to Sheets API requests ───────────────────────────────────────
@@ -365,12 +374,13 @@ export function pagWriteRequests(sheetId: number, model: PagModel): Array<Record
   matrix[0][1] = cellValue([{ text: "End", bold: true }]);
   model.days.forEach((day, index) => {
     const col = 2 + index * 2;
-    // The source's own day number labels the band; renumbering is invention.
-    const dayLabel = `Day ${day.dayNumber ?? index + 1}`;
-    matrix[0][col] = cellValue([{ text: day.date, color: BLACK, bold: true }], undefined, true, 12);
+    // The source's own day number labels the band — never an invented one.
+    const dayLabel = day.dayNumber !== null ? `Day ${day.dayNumber}` : "";
+    const flagged = day.date === UNDATED_DAY;
+    matrix[0][col] = cellValue([{ text: day.date, color: flagged ? RED : BLACK, bold: true }], undefined, true, 12);
     merges.push({ mergeCells: { range: { sheetId, startRowIndex: 0, endRowIndex: 1, startColumnIndex: col, endColumnIndex: col + 2 }, mergeType: "MERGE_ALL" } });
-    matrix[1][col] = cellValue([{ text: dayLabel, color: WHITE, bold: true }], BAND_TEAL, true, 12);
-    matrix[1][col + 1] = cellValue([{ text: `${dayLabel} AV Cues`, color: WHITE, bold: true }], BAND_TEAL, true, 12);
+    matrix[1][col] = cellValue(dayLabel ? [{ text: dayLabel, color: WHITE, bold: true }] : [], BAND_TEAL, true, 12);
+    matrix[1][col + 1] = cellValue(dayLabel ? [{ text: `${dayLabel} AV Cues`, color: WHITE, bold: true }] : [{ text: "AV Cues", color: WHITE, bold: true }], BAND_TEAL, true, 12);
   });
 
   // Time rail labels, exactly as first written.
@@ -401,10 +411,9 @@ export function pagWriteRequests(sheetId: number, model: PagModel): Array<Record
     }
   });
 
-  // Entries with no day or no parseable time are NOT written to the PAG
-  // (Brett, 2026-10-30): the grid is the schedule, and fragments that can't
-  // be placed on it stay off it. They remain visible in the app's compiled
-  // list, and a placed block missing its time still shows the red flag.
+  // Nothing is ever silently dropped (Brett, 2026-10-30): dated-but-untimed
+  // blocks sit in their day with a red "No time listed", and dateless blocks
+  // fill the red-flagged "Day not stated" last column above.
 
   // Column geometry: narrow time rail, wide day columns, wide-ish cue columns.
   const widths: Array<Record<string, unknown>> = [

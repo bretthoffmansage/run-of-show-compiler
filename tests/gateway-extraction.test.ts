@@ -57,12 +57,13 @@ describe("vercel ai gateway extraction adapter", () => {
     await expect(extractFromExcerpt(SOURCE, prose)).rejects.toThrow("non-JSON");
   });
 
-  it("rejects fabricated snippets exactly like the direct route", async () => {
+  it("drops fabricated snippets exactly like the direct route", async () => {
     const adapter = gatewayAdapter({
       apiKey: "k",
       fetcher: async () => sseResponse(JSON.stringify({ items: [{ fields: [{ key: "title", value: "Invented", origin: "source_exact", confidence: 1, snippet: "Invented" }] }] })),
     });
-    await expect(extractFromExcerpt(SOURCE, adapter)).rejects.toThrow("Invalid extraction output");
+    const result = await extractFromExcerpt(SOURCE, adapter);
+    expect(result.items).toHaveLength(0);
   });
 
   it("surfaces provider errors with their status", async () => {

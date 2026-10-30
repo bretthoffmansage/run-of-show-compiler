@@ -18,15 +18,29 @@ describe("bounded extraction contract", () => {
     expect(result.processedAt).toBeTypeOf("number");
   });
 
-  it("rejects missing/wrong provenance and fabricated exact values", async () => {
+  it("drops fields with missing/wrong provenance or fabricated exact values — never compiles them", async () => {
     for (const bad of [
       candidate({ evidence: { sourceId: "other", revision: "r2", snippet: "09:00 Opening with Ava" } }),
       candidate({ evidence: { sourceId: "source-1", revision: "r1", snippet: "09:00 Opening with Ava" } }),
       candidate({ evidence: { sourceId: "source-1", revision: "r2", snippet: "Not in source" } }),
       candidate({ value: "Invented gala" }),
     ]) {
-      await expect(extractFromExcerpt(source, adapter({ items: [{ fields: [bad] }] }))).rejects.toBeInstanceOf(ExtractionValidationError);
+      // One bad field must not erase the chunk's good rows: it is filtered
+      // out field-by-field, and nothing unprovable survives.
+      const result = await extractFromExcerpt(source, adapter({ items: [{ fields: [bad] }, { fields: [candidate()] }] }));
+      expect(result.items).toHaveLength(1);
+      expect(result.items[0].fields[0].value).toBe(candidate().value);
     }
+  });
+
+  it("tolerates whitespace-only snippet drift (tabs vs spaces), nothing more", async () => {
+    const tabby = { ...source, text: "09:00\tOpening with Ava\n09:30\tBreak" };
+    const spaced = candidate({ evidence: { sourceId: "source-1", revision: "r2", snippet: "09:00 Opening with Ava" } });
+    const result = await extractFromExcerpt(tabby, adapter({ items: [{ fields: [spaced] }] }));
+    expect(result.items).toHaveLength(1);
+    const reworded = candidate({ evidence: { sourceId: "source-1", revision: "r2", snippet: "Opening by Ava at 09:00" } });
+    const rejected = await extractFromExcerpt(tabby, adapter({ items: [{ fields: [reworded] }] }));
+    expect(rejected.items).toHaveLength(0);
   });
 
   it("treats prompt-injection text as source data and rejects unauthorized output shape", async () => {

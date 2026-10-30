@@ -51,14 +51,23 @@ export async function extractFromExcerpt(source: SourceExcerpt, adapter: ModelAd
   const modelResult = await adapter.infer({ instruction: INSTRUCTION, untrustedSource: source });
   const parsed = outputSchema.safeParse(modelResult.output);
   if (!parsed.success || !modelResult.model || !modelResult.version) throw new ExtractionValidationError();
-  for (const item of parsed.data.items) {
-    for (const candidate of item.fields) {
-      const { evidence, origin, value } = candidate;
-      if (evidence.sourceId !== source.sourceId || evidence.revision !== source.revision || !source.text.includes(evidence.snippet)) {
-        throw new ExtractionValidationError();
-      }
-      if (origin === "source_exact" && !evidence.snippet.includes(value)) throw new ExtractionValidationError();
-    }
-  }
-  return { ...parsed.data, model: modelResult.model, version: modelResult.version, processedAt: Date.now(), sourceId: source.sourceId, revision: source.revision };
+  // Provenance gate, field by field: an unprovable field is dropped, never
+  // the whole chunk (one bad snippet must not erase a hundred good rows).
+  // Containment tolerates WHITESPACE differences only — spreadsheet cells
+  // are tab-separated in the stored text while models quote them with
+  // spaces — the word sequence itself must match exactly.
+  const squash = (text: string) => text.replace(/\s+/g, " ");
+  const normalizedSource = squash(source.text);
+  const items = parsed.data.items
+    .map(item => ({
+      fields: item.fields.filter(candidate => {
+        const { evidence, origin, value } = candidate;
+        if (evidence.sourceId !== source.sourceId || evidence.revision !== source.revision) return false;
+        if (!source.text.includes(evidence.snippet) && !normalizedSource.includes(squash(evidence.snippet))) return false;
+        if (origin === "source_exact" && !evidence.snippet.includes(value) && !squash(evidence.snippet).includes(squash(value))) return false;
+        return true;
+      }),
+    }))
+    .filter(item => item.fields.length > 0);
+  return { items, model: modelResult.model, version: modelResult.version, processedAt: Date.now(), sourceId: source.sourceId, revision: source.revision };
 }

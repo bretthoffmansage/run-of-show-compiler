@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   classifyBlock, FILL, FRESH_CHANGE_MS, isPagTitle, pagModel, pagWriteRequests,
-  parseClockMinutes, PINK, placeDayBlocks, RED, renameCopiedTabRequests,
+  parseClockMinutes, PINK, placeDayBlocks, RED, renameCopiedTabRequests, UNDATED_DAY,
 } from "../lib/playbook-writer";
 
 const NOW = 1_800_000_000_000;
@@ -44,12 +44,14 @@ describe("PAG model: days horizontal, time flowing downward", () => {
     field("loose", "title", "Sponsor shoutout"),
   ];
 
-  it("groups blocks into day columns ordered chronologically, unplaced listed separately", () => {
+  it("groups blocks into day columns; dateless blocks get the flagged last column, never hidden", () => {
     const model = pagModel(fields, NOW);
-    expect(model.days.map(day => day.date)).toEqual(["October 21", "October 22"]);
+    expect(model.days.map(day => day.date)).toEqual(["October 21", "October 22", UNDATED_DAY]);
     expect(model.days[0].blocks.map(block => block.title)).toEqual(["VIP and General Networking Open", "Day 2 Opening Sequence"]);
     expect(model.days[1].blocks[0].type).toBe("internal");
-    expect(model.unplaced.map(block => block.title)).toEqual(["Sponsor shoutout"]);
+    expect(model.days[2].blocks.map(block => block.title)).toEqual(["Sponsor shoutout"]);
+    // Untimed: rendered with the red flag, not dropped.
+    expect(model.days[2].blocks[0].timeText).toBeNull();
   });
 
   it("merges day variants into one column and collapses duplicate blocks", () => {
@@ -76,11 +78,12 @@ describe("PAG model: days horizontal, time flowing downward", () => {
       field("c2", "date", "Day 2 – October 20"), field("c2", "day", "Day 2"), field("c2", "start_time", "9:00 AM"), field("c2", "title", "Day 2 Crew Call"),
       field("x", "start_time", "10:00 AM"), field("x", "title", "No day stated"),
     ], NOW);
-    expect(model.days.map(day => day.dayNumber)).toEqual([1, 2, 3]);
-    expect(model.days.map(day => day.blocks[0].title)).toEqual(["Day 1 Crew Call", "Day 2 Crew Call", "Day 3 Crew Call"]);
-    // Timed but dayless: unplaced, not dumped into Day 1's column.
-    expect(model.unplaced.map(block => block.title)).toEqual(["No day stated"]);
-    expect(model.days.every(day => day.blocks.every(block => block.title.startsWith(`Day ${day.dayNumber}`)))).toBe(true);
+    expect(model.days.map(day => day.dayNumber)).toEqual([1, 2, 3, null]);
+    expect(model.days.slice(0, 3).map(day => day.blocks[0].title)).toEqual(["Day 1 Crew Call", "Day 2 Crew Call", "Day 3 Crew Call"]);
+    // Timed but dayless: its own red-flagged last column, not Day 1's.
+    expect(model.days[3].date).toBe(UNDATED_DAY);
+    expect(model.days[3].blocks.map(block => block.title)).toEqual(["No day stated"]);
+    expect(model.days.slice(0, 3).every(day => day.blocks.every(block => block.title.startsWith(`Day ${day.dayNumber}`)))).toBe(true);
   });
 
   it("builds a shared time rail from boundaries, labeled exactly as written", () => {
@@ -152,7 +155,7 @@ describe("downward placement never overlaps", () => {
 
 describe("PAG write requests", () => {
   const fields = [
-    field("a", "date", "October 21"), field("a", "start_time", "9:00 AM"), field("a", "end_time", "10:00 AM"), field("a", "title", "Opening", { conflict: true }),
+    field("a", "date", "October 21"), field("a", "day", "Day 2"), field("a", "start_time", "9:00 AM"), field("a", "end_time", "10:00 AM"), field("a", "title", "Opening", { conflict: true }),
     field("a", "audio", "Walk-on Song", { changedAt: NOW - 1000 }),
     field("b", "date", "October 21"), field("b", "start_time", "10:00 AM"), field("b", "title", "Lunch Break"),
   ];
@@ -174,8 +177,9 @@ describe("PAG write requests", () => {
     const matrixRequest = requests.find(request => (request.updateCells as { start?: unknown } | undefined)?.start) as { updateCells: { rows: Array<{ values: Cell[] }> } };
     const rows = matrixRequest.updateCells.rows;
     expect(rows[0].values[2].userEnteredValue.stringValue).toBe("October 21");
-    expect(rows[1].values[2].userEnteredValue.stringValue).toBe("Day 1");
-    expect(rows[1].values[3].userEnteredValue.stringValue).toBe("Day 1 AV Cues");
+    // The band carries the source's own day label — never an invented one.
+    expect(rows[1].values[2].userEnteredValue.stringValue).toBe("Day 2");
+    expect(rows[1].values[3].userEnteredValue.stringValue).toBe("Day 2 AV Cues");
     const opening = rows[2].values[2];
     expect(opening.userEnteredValue.stringValue).toContain("Opening");
     expect(opening.textFormatRuns[0].format.foregroundColor).toEqual(RED);

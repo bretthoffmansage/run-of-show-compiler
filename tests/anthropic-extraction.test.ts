@@ -39,14 +39,15 @@ describe("anthropic extraction adapter", () => {
     expect(body.tool_choice).toMatchObject({ type: "tool", name: "report_extraction" });
   });
 
-  it("rejects output whose snippets are not verbatim from the source", async () => {
+  it("drops output whose snippets are not verbatim from the source", async () => {
     const adapter = anthropicAdapter({
       apiKey: "test-key",
       fetcher: async () => anthropicResponse({
         items: [{ fields: [{ key: "title", value: "Invented Session", origin: "source_exact", confidence: 1, snippet: "Invented Session" }] }],
       }),
     });
-    await expect(extractFromExcerpt(SOURCE, adapter)).rejects.toThrow("Invalid extraction output");
+    const result = await extractFromExcerpt(SOURCE, adapter);
+    expect(result.items).toHaveLength(0);
   });
 
   it("surfaces provider errors without retry loops", async () => {
