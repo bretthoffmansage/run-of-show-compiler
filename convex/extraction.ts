@@ -7,6 +7,7 @@ import { anthropicAdapter, DEFAULT_EXTRACTION_MODEL } from "../lib/anthropic-ext
 import { DEFAULT_GATEWAY_MODEL, gatewayAdapter } from "../lib/gateway-extraction";
 import { fallbackAdapter } from "../lib/fallback-parser";
 import { chunkByLines, chunkBySections, headerNamesDay } from "../lib/chunk-text";
+import { parseSheetDump } from "../lib/sheet-parser";
 
 type Engine = "gateway" | "anthropic" | "fallback";
 
@@ -51,7 +52,7 @@ export const snapshotContext = internalQuery({
  * day-header dates): the reaper cron then re-extracts every source's latest
  * snapshot under the new rules and the compile rebuilds from the result.
  */
-export const EXTRACTION_PROMPT_VERSION = 5;
+export const EXTRACTION_PROMPT_VERSION = 6;
 
 export const startRun = internalMutation({
   args: {
@@ -127,10 +128,14 @@ export const runSnapshot = internalAction({
       // parallel so the whole document fits the time budget, and chunks that
       // still overflow the model's output bisect and retry.
       const deadline = Date.now() + 8 * 60 * 1000;
+      // Spreadsheet tabs with a header row are read deterministically, cell
+      // by cell — every row, every cell, verbatim. Only what that reader
+      // can't parse (documents, header-less tabs) goes to the model.
+      const sheet = parseSheetDump(context.content, String(context.sourceId), context.revision);
+      const items: ExtractionOutput["items"] = [...sheet.items];
       // Tab-aware chunks: each belongs to exactly one tab and starts with
       // that tab's "# <title>" header, so no row is cut off from its day.
-      const queue = chunkBySections(context.content, 10_000).slice(0, 60).map(section => ({ chunk: section.text, header: section.header, depth: 0, retries: 0 }));
-      const items: ExtractionOutput["items"] = [];
+      const queue = chunkBySections(sheet.unparsedText, 10_000).slice(0, 60).map(section => ({ chunk: section.text, header: section.header, depth: 0, retries: 0 }));
       let attempted = 0;
       let failedChunks = 0;
       let skippedChunks = 0;

@@ -2,15 +2,16 @@
  * Pure builders for the Google Sheet playbook PAG/ROS tab: compiled master
  * fields in, Sheets API batchUpdate requests out. No network here.
  *
- * Layout contract (PORTING_RULES.md): days run HORIZONTALLY — one program
- * column plus a paired "Day N AV Cues" column per day — and content flows
- * DOWNWARD over time against a shared Start/End time rail in columns A/B.
- * Blocks are merged cells spanning their time range, filled by block type.
- * Times render exactly as the sources wrote them; sorting and spanning use
- * parsed values internally, but nothing is reformatted or converted.
+ * Layout contract (PORTING_RULES.md, approved 2026-10-30): days run
+ * HORIZONTALLY — one program column plus a paired "Day N AV Cues" column per
+ * day — and content flows DOWNWARD in the source's own row order. Rows are
+ * shared across days and keyed by start time, so a time in the rail (columns
+ * A/B) lines up with every block that starts then. Untimed rows sit directly
+ * under the row above them in the source, with a red "No time listed".
+ * Every time renders exactly as the source wrote it.
  *
  * Marking: text color only, on compiler-written values only.
- *   red  = sources disagree or the value is unresolved
+ *   red  = sources disagree, or a required value (time) is missing
  *   pink = changed by a source edit recently
  */
 
@@ -42,7 +43,6 @@ export const FILL = {
 } as const;
 export type BlockType = keyof typeof FILL;
 export const BAND_TEAL = { red: 0.173, green: 0.604, blue: 0.624 };
-export const BAND_GRAY = { red: 0.35, green: 0.35, blue: 0.35 };
 
 export function markFor(field: CompiledField | undefined, now: number): Mark {
   if (!field) return null;
@@ -54,17 +54,19 @@ export function markFor(field: CompiledField | undefined, now: number): Mark {
 /** Parse a clock string leniently for ORDERING only; display stays as written. */
 export function parseClockMinutes(text: string | null): number | null {
   if (!text) return null;
-  const match = text.trim().match(/^(\d{1,2})(?::(\d{2}))?(?::\d{2})?\s*(am|pm|a\.m\.|p\.m\.)?$/i);
+  const match = text.trim().match(/^(\d{1,2})(?::(\d{2}))?(?::(\d{2}))?\s*(am|pm|a\.m\.|p\.m\.)?$/i);
   if (!match) return null;
   let hours = Number(match[1]);
   const minutes = Number(match[2] ?? 0);
-  if (hours > 23 || minutes > 59) return null;
-  const meridiem = match[3]?.toLowerCase();
+  const seconds = Number(match[3] ?? 0);
+  if (hours > 23 || minutes > 59 || seconds > 59) return null;
+  const meridiem = match[4]?.toLowerCase();
   if (meridiem?.startsWith("p") && hours < 12) hours += 12;
   if (meridiem?.startsWith("a") && hours === 12) hours = 0;
   // No meridiem and small hour: event days run 7am–11pm, so 1–6 reads as afternoon.
   if (!meridiem && hours >= 1 && hours <= 6) hours += 12;
-  return hours * 60 + minutes;
+  // Seconds are kept (as a fraction) so 10:00:00 and 10:01:57 are distinct rows.
+  return hours * 60 + minutes + seconds / 60;
 }
 
 /** Block type from what the source called the block — title keywords as fallback. */
@@ -81,23 +83,28 @@ interface TextPart { text: string; color?: { red: number; green: number; blue: n
 
 export interface PagBlock {
   entryKey: string;
-  title: string;
+  /** null when the source row has no title text — nothing is invented. */
+  title: string | null;
   titleMark: Mark;
   timeText: string | null;    // exactly as the source wrote it (start[ - end])
   timeMark: Mark;
   speaker: string | null;
   speakerMark: Mark;
-  /** Labeled short facts (duration, audience, dependency, time zone, type). */
+  /** Labeled short facts (duration, audience, dependency). */
   meta: Array<{ label: string; text: string; mark: Mark }>;
   body: Array<{ text: string; mark: Mark }>;
-  av: Array<{ label: string; text: string; mark: Mark }>;
+  av: Array<{ label: string | null; text: string; mark: Mark }>;
   type: BlockType;
   startMin: number | null;
   endMin: number | null;
+  /** Row position in the source document, when known. */
+  order: number | null;
 }
 
 export interface PagDay {
   date: string;               // as written in the sources
+  /** Caption lines from the source tab (e.g. "BMC45 Master Run of Show - Day 3"). */
+  caption: string | null;
   /** The source's own day number ("Day 3" → 3) when it states one. */
   dayNumber: number | null;
   blocks: PagBlock[];
@@ -105,8 +112,6 @@ export interface PagDay {
 
 export interface PagModel {
   days: PagDay[];
-  /** Sorted distinct minute boundaries that define the grid rows. */
-  rail: Array<{ minute: number; label: string }>;
 }
 
 /**
@@ -121,8 +126,7 @@ const MONTHS = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "
 /**
  * Sortable calendar ordinal (month*100 + day) for a date string however the
  * source writes it; null when unparseable. Every parse path lands on the
- * same scale so "Day 2 – October 20" and "October 20" compare equal and
- * merge into one column.
+ * same scale so "Day 2 – October 20" and "October 20" compare equal.
  */
 export function dateOrdinal(text: string): number | null {
   const monthName = text.toLowerCase().match(/(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\.?\s+(\d{1,2})/);
@@ -139,9 +143,9 @@ export function dateOrdinal(text: string): number | null {
   return null;
 }
 
-/** The source's own day number, from a day field or embedded in the date text. */
+/** The source's own day number, from the date text or a day field. */
 export function dayNumberOf(dayField: string | null, dateText: string | null): number | null {
-  for (const text of [dayField, dateText]) {
+  for (const text of [dateText, dayField]) {
     const match = text?.match(/day\s*(\d+)/i) ?? (text && /^\d+$/.test(text.trim()) ? [text, text.trim()] : null);
     if (match) return Number(match[1]);
   }
@@ -149,14 +153,12 @@ export function dayNumberOf(dayField: string | null, dateText: string | null): n
 }
 
 const BODY_FIELDS = ["script", "additional_detail"] as const;
-/** Every other captured field lands on the sheet too — complete coverage. */
 const META_FIELDS: Array<{ key: string; label: string }> = [
   { key: "duration", label: "Duration" },
   { key: "audience", label: "Audience" },
   { key: "dependency", label: "Depends on" },
-  // time_zone is deliberately NOT rendered per block: it is one fact about
-  // the document (usually a column header), and stamping it on every box is
-  // duplication, not coverage. Times themselves are already verbatim.
+  // time_zone is deliberately NOT rendered per block (one fact about the
+  // document, not per-row data).
 ];
 const AV_FIELDS: Array<{ key: string; label: string }> = [
   { key: "audio", label: "Audio" },
@@ -165,61 +167,65 @@ const AV_FIELDS: Array<{ key: string; label: string }> = [
   { key: "stage_direction", label: "Stage" },
   { key: "production_note", label: "Note" },
 ];
+/** "Visual: Logo Screen" already carries the source's own column label. */
+const SELF_LABELED = /^[^:\n]{1,40}: /;
 
 export function pagModel(fields: CompiledField[], now: number): PagModel {
   const byEntry = new Map<string, CompiledField[]>();
   for (const field of fields) byEntry.set(field.entryKey, [...(byEntry.get(field.entryKey) ?? []), field]);
-  const blocks: Array<PagBlock & { date: string | null; dayNumber: number | null }> = [...byEntry].map(([entryKey, entryFields]) => {
+  const blocks: Array<PagBlock & { date: string | null; caption: string | null; dayNumber: number | null }> = [...byEntry].map(([entryKey, entryFields]) => {
     const get = (key: string) => entryFields.find(field => field.fieldKey === key);
     const start = get("start_time")?.value ?? null;
     const end = get("end_time")?.value ?? null;
     const timeMarkSource = get("start_time") ?? get("end_time");
+    const order = get("source_order") ? Number(get("source_order")!.value) : null;
     return {
       entryKey,
       date: get("date")?.value ?? null,
+      caption: get("day")?.value ?? null,
       dayNumber: dayNumberOf(get("day")?.value ?? null, get("date")?.value ?? null),
-      title: get("title")?.value ?? "Title unresolved",
-      titleMark: get("title") ? markFor(get("title"), now) : "conflict",
+      title: get("title")?.value ?? null,
+      titleMark: markFor(get("title"), now),
       timeText: start || end ? [start, end].filter(Boolean).join(" - ") : null,
       timeMark: markFor(timeMarkSource, now),
       speaker: get("speaker")?.value ?? null,
       speakerMark: markFor(get("speaker"), now),
       meta: META_FIELDS.flatMap(({ key, label }) => { const f = get(key); return f ? [{ label, text: f.value, mark: markFor(f, now) }] : []; }),
       body: BODY_FIELDS.flatMap(key => { const f = get(key); return f ? [{ text: f.value, mark: markFor(f, now) }] : []; }),
-      av: AV_FIELDS.flatMap(({ key, label }) => { const f = get(key); return f ? [{ label, text: f.value, mark: markFor(f, now) }] : []; }),
+      av: AV_FIELDS.flatMap(({ key, label }) => {
+        const f = get(key);
+        if (!f) return [];
+        return [{ label: SELF_LABELED.test(f.value) ? null : label, text: f.value, mark: markFor(f, now) }];
+      }),
       type: classifyBlock(get("type")?.value ?? null, get("title")?.value ?? "", Boolean(get("break"))),
       startMin: parseClockMinutes(start),
       endMin: parseClockMinutes(end),
+      order: order !== null && Number.isFinite(order) ? order : null,
     };
   });
 
-  // Days run horizontally — Day 1 far left through Day N far right — ordered
-  // by the source's own day number first, then by date, then by appearance.
-  // A block that names no day is NEVER dumped into another day's column: it
-  // goes to the unplaced list under the grid.
-  const dayGroups = new Map<string, { date: string; dayNumber: number | null; appearance: number; blocks: PagBlock[] }>();
+  // Days run horizontally — ordered by the source's own day number, then by
+  // date, then by appearance. A dated block always joins its day; only a
+  // dateless one goes to the flagged last column, never another day's.
+  type Group = { date: string; caption: string | null; dayNumber: number | null; appearance: number; blocks: PagBlock[] };
+  const dayGroups = new Map<string, Group>();
   const undated: PagBlock[] = [];
   let appearance = 0;
   for (const block of blocks) {
-    // A dated entry always joins its day, timed or not (a missing time shows
-    // the red flag inside the block). Only a dateless entry leaves the grid
-    // columns — into the flagged last column, never another day's.
     if (block.date === null) { undated.push(block); continue; }
     let group = dayGroups.get(block.date);
     if (!group) {
-      group = { date: block.date, dayNumber: block.dayNumber, appearance: appearance++, blocks: [] };
+      group = { date: block.date, caption: null, dayNumber: block.dayNumber, appearance: appearance++, blocks: [] };
       dayGroups.set(block.date, group);
     }
     if (group.dayNumber === null && block.dayNumber !== null) group.dayNumber = block.dayNumber;
+    if (group.caption === null && block.caption && block.caption !== block.date) group.caption = block.caption;
     group.blocks.push(block);
   }
-  // One column per real day: groups whose date strings differ only in
-  // wording (chunk variants like "Day 2 – October 20" vs "October 20")
-  // merge when they share a day number or the same calendar date. The
-  // longest date string, which carries the most information, heads the column.
-  const groups = [...dayGroups.values()];
-  const merged: typeof groups = [];
-  for (const group of groups) {
+  // One column per real day: date-string variants merge when they share a
+  // day number or calendar date.
+  const merged: Group[] = [];
+  for (const group of dayGroups.values()) {
     const twin = merged.find(candidate =>
       (candidate.dayNumber !== null && group.dayNumber !== null && candidate.dayNumber === group.dayNumber) ||
       (dateOrdinal(candidate.date) !== null && dateOrdinal(candidate.date) === dateOrdinal(group.date)));
@@ -227,6 +233,7 @@ export function pagModel(fields: CompiledField[], now: number): PagModel {
       twin.blocks.push(...group.blocks);
       if (group.date.length > twin.date.length) twin.date = group.date;
       twin.dayNumber ??= group.dayNumber;
+      twin.caption ??= group.caption;
       twin.appearance = Math.min(twin.appearance, group.appearance);
     } else {
       merged.push({ ...group });
@@ -238,44 +245,104 @@ export function pagModel(fields: CompiledField[], now: number): PagModel {
       ((a.dayNumber ?? BIG) - (b.dayNumber ?? BIG)) ||
       ((dateOrdinal(a.date) ?? BIG) - (dateOrdinal(b.date) ?? BIG)) ||
       (a.appearance - b.appearance))
-    .map(group => ({ date: group.date, dayNumber: group.dayNumber, blocks: group.blocks }));
-  if (undated.length) days.push({ date: UNDATED_DAY, dayNumber: null, blocks: undated });
-  for (const day of days) {
-    day.blocks.sort((a, b) => ((a.startMin ?? BIG) - (b.startMin ?? BIG)) || a.entryKey.localeCompare(b.entryKey));
-    // Duplicate rows (same start, same title bar punctuation/case) collapse
-    // to the richer block — merged day variants would otherwise double up.
-    const slug = (block: PagBlock) => `${block.startMin}\u0000${block.title.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim()}`;
-    const richness = (block: PagBlock) => [block.timeText, block.speaker].filter(Boolean).length + block.meta.length + block.body.length + block.av.length;
-    const byId = new Map<string, PagBlock>();
-    for (const block of day.blocks) {
-      const id = slug(block);
-      const incumbent = byId.get(id);
-      if (!incumbent || richness(block) > richness(incumbent)) byId.set(id, block);
-    }
-    day.blocks = day.blocks.filter(block => byId.get(slug(block)) === block);
-  }
+    .map(group => ({ date: group.date, caption: group.caption, dayNumber: group.dayNumber, blocks: group.blocks }));
+  if (undated.length) days.push({ date: UNDATED_DAY, caption: null, dayNumber: null, blocks: undated });
 
-  // Shared time rail: every start/end boundary across all days, labeled with
-  // the first form a source wrote for that minute.
-  const labels = new Map<number, string>();
-  for (const day of days) for (const block of day.blocks) {
-    if (block.startMin !== null && !labels.has(block.startMin)) {
-      labels.set(block.startMin, (block.timeText ?? "").split(" - ")[0] || "");
-    }
-    if (block.endMin !== null && !labels.has(block.endMin)) {
-      const parts = (block.timeText ?? "").split(" - ");
-      labels.set(block.endMin, parts[1] ?? "");
-    }
+  for (const day of days) {
+    // Source order is the truth for a run of show; time order only when the
+    // source order is unknown.
+    const allOrdered = day.blocks.every(block => block.order !== null);
+    day.blocks.sort((a, b) => allOrdered
+      ? a.order! - b.order!
+      : ((a.startMin ?? BIG) - (b.startMin ?? BIG)) || ((a.order ?? BIG) - (b.order ?? BIG)) || a.entryKey.localeCompare(b.entryKey));
+    // Exact duplicate rows (same start, same title, same cues) collapse to
+    // one; distinct rows that merely share a start time are all kept.
+    const fingerprint = (block: PagBlock) => JSON.stringify([block.startMin, (block.title ?? "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim(), block.speaker, block.av.map(a => a.text), block.body.map(b => b.text)]);
+    const seen = new Set<string>();
+    day.blocks = day.blocks.filter(block => {
+      const id = fingerprint(block);
+      if (seen.has(id)) return false;
+      seen.add(id);
+      return true;
+    });
   }
-  const rail = [...labels.entries()].map(([minute, label]) => ({ minute, label })).sort((a, b) => a.minute - b.minute);
-  return { days, rail };
+  return { days };
+}
+
+// ── Layout ─────────────────────────────────────────────────────────────────
+
+const HEADER_ROWS = 2; // row 0: dates · row 1: Day N / Day N AV Cues bands
+export const CLEAR_ROWS = 400;
+export const CLEAR_COLS = 26;
+
+export interface PlacedBlock { block: PagBlock; startRow: number; endRow: number }
+export interface PagLayout {
+  /** Grid rows (after the header rows): anchor minute + rail labels. */
+  rows: Array<{ anchor: number; sub: number; startLabel: string; endLabel: string }>;
+  placed: PlacedBlock[][];      // per day
+}
+
+/**
+ * Row keys are (anchor minute, sub-index). A timed block anchors at its start
+ * minute; an untimed block anchors right after the block above it in the
+ * source. Blocks sharing an anchor in one day take successive sub-rows.
+ * Rows are shared across days, so the rail label on each row is exactly the
+ * start time of the blocks on it.
+ */
+export function layoutPag(model: PagModel): PagLayout {
+  const keyOf = (anchor: number, sub: number) => `${anchor}:${sub}`;
+  const slots = model.days.map(day => {
+    const counts = new Map<number, number>();
+    let previous = -1;
+    return day.blocks.map(block => {
+      const anchor = block.startMin ?? previous;
+      const sub = counts.get(anchor) ?? 0;
+      counts.set(anchor, sub + 1);
+      previous = anchor;
+      return { block, anchor, sub };
+    });
+  });
+  const unique = new Map<string, { anchor: number; sub: number }>();
+  for (const day of slots) for (const slot of day) unique.set(keyOf(slot.anchor, slot.sub), { anchor: slot.anchor, sub: slot.sub });
+  const ordered = [...unique.values()].sort((a, b) => (a.anchor - b.anchor) || (a.sub - b.sub));
+  const rowIndex = new Map(ordered.map((slot, index) => [keyOf(slot.anchor, slot.sub), HEADER_ROWS + index]));
+
+  // Rail labels: the start (and end) text exactly as some block wrote it.
+  const startText = new Map<number, string>();
+  const endText = new Map<number, string>();
+  for (const day of slots) for (const { block } of day) {
+    if (block.startMin === null || !block.timeText) continue;
+    const [startPart, endPart] = block.timeText.split(" - ");
+    if (!startText.has(block.startMin)) startText.set(block.startMin, startPart);
+    if (endPart && !endText.has(block.startMin)) endText.set(block.startMin, endPart);
+  }
+  const rows = ordered.map(slot => ({
+    anchor: slot.anchor,
+    sub: slot.sub,
+    startLabel: slot.sub === 0 ? startText.get(slot.anchor) ?? "" : "",
+    endLabel: slot.sub === 0 ? endText.get(slot.anchor) ?? "" : "",
+  }));
+
+  const placed = slots.map(day => {
+    const sorted = [...day].sort((a, b) => rowIndex.get(keyOf(a.anchor, a.sub))! - rowIndex.get(keyOf(b.anchor, b.sub))!);
+    return sorted.map((slot, i) => {
+      const startRow = rowIndex.get(keyOf(slot.anchor, slot.sub))!;
+      const nextRow = i + 1 < sorted.length ? rowIndex.get(keyOf(sorted[i + 1].anchor, sorted[i + 1].sub))! : startRow + 1;
+      // Span down to the next block of this day, but no further than the
+      // block's own end time.
+      let endRow = startRow + 1;
+      while (endRow < nextRow) {
+        const row = rows[endRow - HEADER_ROWS];
+        if (slot.block.endMin === null || row.anchor >= slot.block.endMin) break;
+        endRow++;
+      }
+      return { block: slot.block, startRow, endRow };
+    });
+  });
+  return { rows, placed };
 }
 
 // ── Rendering to Sheets API requests ───────────────────────────────────────
-
-const HEADER_ROWS = 2; // row 0: dates · row 1: Day N / Day N AV Cues bands
-export const CLEAR_ROWS = 300;
-export const CLEAR_COLS = 26;
 
 const FONT = { fontFamily: "Calibri", fontSize: 10 };
 
@@ -304,106 +371,76 @@ function colorOf(mark: Mark) {
 }
 
 function blockParts(block: PagBlock): TextPart[] {
-  const parts: TextPart[] = [{ text: block.title, color: colorOf(block.titleMark), bold: true }];
-  if (block.timeText) parts.push({ text: `\n${block.timeText}`, color: colorOf(block.timeMark), bold: true });
-  else parts.push({ text: "\nNo time listed", color: RED, bold: true });
-  if (block.speaker) parts.push({ text: `\n${block.speaker}`, color: colorOf(block.speakerMark) });
+  const parts: TextPart[] = [];
+  const line = (part: TextPart) => parts.push(parts.length ? { ...part, text: `\n${part.text}` } : part);
+  if (block.title) line({ text: block.title, color: colorOf(block.titleMark), bold: true });
+  if (block.timeText) line({ text: block.timeText, color: colorOf(block.timeMark), bold: true });
+  else line({ text: "No time listed", color: RED, bold: true });
+  if (block.speaker) line({ text: block.speaker, color: colorOf(block.speakerMark) });
   for (const item of block.meta) {
-    parts.push({ text: `\n${item.label}: `, bold: true });
+    line({ text: `${item.label}: `, bold: true });
     parts.push({ text: item.text, color: colorOf(item.mark) });
   }
-  for (const line of block.body) parts.push({ text: `\n\n${line.text}`, color: colorOf(line.mark) });
+  for (const body of block.body) line({ text: body.text, color: colorOf(body.mark) });
   return parts;
 }
 
 function avParts(block: PagBlock): TextPart[] {
   const parts: TextPart[] = [];
   for (const item of block.av) {
-    parts.push({ text: parts.length ? `\n${item.label}: ` : `${item.label}: `, bold: true });
-    parts.push({ text: item.text, color: colorOf(item.mark) });
+    const lead = parts.length ? "\n" : "";
+    if (item.label) {
+      parts.push({ text: `${lead}${item.label}: `, bold: true });
+      parts.push({ text: item.text, color: colorOf(item.mark) });
+    } else {
+      parts.push({ text: `${lead}${item.text}`, color: colorOf(item.mark) });
+    }
   }
   return parts;
 }
 
-interface Placement { block: PagBlock; startRow: number; endRow: number }
-
 /**
- * Non-overlapping downward placement for one day column: blocks sit at their
- * rail row when free, otherwise directly below the previous block. Spans
- * never intersect, so merges are always valid.
- */
-export function placeDayBlocks(day: PagDay, minuteToRow: Map<number, number>): Placement[] {
-  const placements: Placement[] = [];
-  let cursor = HEADER_ROWS;
-  day.blocks.forEach((block, index) => {
-    const startRow = Math.max(minuteToRow.get(block.startMin!) ?? HEADER_ROWS, cursor);
-    const nextStart = day.blocks[index + 1]?.startMin ?? null;
-    const endMinute = block.endMin ?? nextStart;
-    const idealEnd = endMinute !== null && minuteToRow.has(endMinute) ? minuteToRow.get(endMinute)! : startRow + 1;
-    const endRow = Math.max(startRow + 1, idealEnd);
-    placements.push({ block, startRow, endRow });
-    cursor = endRow;
-  });
-  return placements;
-}
-
-/**
- * Full rewrite of the PAG region: unmerge + clear, set the column geometry
- * (narrow Start/End rail, wide day and AV-cues columns), then the date
- * header row, the Day N / AV Cues band row, the time rail, each day's merged
- * blocks flowing downward, and untimed entries under the grid.
+ * Full rewrite of the PAG region: unmerge + clear, set column geometry, then
+ * date headers, Day N / AV Cues bands, the time rail, and every block merged
+ * over its rows. Nothing is written below the last block.
  */
 export function pagWriteRequests(sheetId: number, model: PagModel): Array<Record<string, unknown>> {
   const dayCount = model.days.length;
   const width = Math.max(2 + dayCount * 2, 4);
-  const minuteToRow = new Map<number, number>();
-  model.rail.forEach((stop, index) => minuteToRow.set(stop.minute, HEADER_ROWS + index));
-  const dayPlacements = model.days.map(day => placeDayBlocks(day, minuteToRow));
-  const gridBottom = Math.max(
-    HEADER_ROWS + model.rail.length,
-    ...dayPlacements.flatMap(placements => placements.map(p => p.endRow)),
-    HEADER_ROWS + 1,
-  );
-  const totalRows = gridBottom + 1;
-
+  const layout = layoutPag(model);
+  const totalRows = HEADER_ROWS + Math.max(layout.rows.length, 1);
   const matrix: Array<Array<Record<string, unknown>>> = Array.from({ length: totalRows }, () => Array.from({ length: width }, () => ({ userEnteredFormat: { textFormat: FONT, wrapStrategy: "WRAP", verticalAlignment: "TOP" } })));
   const merges: Array<Record<string, unknown>> = [];
 
-  // Header rows.
   matrix[0][0] = cellValue([{ text: "Start", bold: true }]);
   matrix[0][1] = cellValue([{ text: "End", bold: true }]);
   model.days.forEach((day, index) => {
     const col = 2 + index * 2;
-    // The source's own day number labels the band — never an invented one.
     const dayLabel = day.dayNumber !== null ? `Day ${day.dayNumber}` : "";
     const flagged = day.date === UNDATED_DAY;
-    matrix[0][col] = cellValue([{ text: day.date, color: flagged ? RED : BLACK, bold: true }], undefined, true, 12);
+    const header: TextPart[] = [{ text: day.date, color: flagged ? RED : BLACK, bold: true }];
+    if (day.caption) header.push({ text: `\n${day.caption}`, color: BLACK });
+    matrix[0][col] = cellValue(header, undefined, true, 12);
     merges.push({ mergeCells: { range: { sheetId, startRowIndex: 0, endRowIndex: 1, startColumnIndex: col, endColumnIndex: col + 2 }, mergeType: "MERGE_ALL" } });
     matrix[1][col] = cellValue(dayLabel ? [{ text: dayLabel, color: WHITE, bold: true }] : [], BAND_TEAL, true, 12);
-    matrix[1][col + 1] = cellValue(dayLabel ? [{ text: `${dayLabel} AV Cues`, color: WHITE, bold: true }] : [{ text: "AV Cues", color: WHITE, bold: true }], BAND_TEAL, true, 12);
+    matrix[1][col + 1] = cellValue([{ text: dayLabel ? `${dayLabel} AV Cues` : "AV Cues", color: WHITE, bold: true }], BAND_TEAL, true, 12);
   });
 
-  // Time rail labels, exactly as first written.
-  model.rail.forEach((stop, index) => {
-    const row = HEADER_ROWS + index;
-    const next = model.rail[index + 1];
-    matrix[row][0] = cellValue([{ text: stop.label }], undefined, false);
-    matrix[row][1] = cellValue([{ text: next?.label ?? "" }], undefined, false);
+  layout.rows.forEach((row, index) => {
+    matrix[HEADER_ROWS + index][0] = cellValue([{ text: row.startLabel }], undefined, false);
+    matrix[HEADER_ROWS + index][1] = cellValue([{ text: row.endLabel }], undefined, false);
   });
 
-  // Blocks: merged over their span, filled by type; AV cues beside them.
-  model.days.forEach((day, dayIndex) => {
+  layout.placed.forEach((day, dayIndex) => {
     const col = 2 + dayIndex * 2;
-    for (const { block, startRow, endRow } of dayPlacements[dayIndex]) {
+    for (const { block, startRow, endRow } of day) {
       matrix[startRow][col] = cellValue(blockParts(block), FILL[block.type]);
+      const av = avParts(block);
+      if (av.length) matrix[startRow][col + 1] = cellValue(av, FILL.internal);
       if (endRow - startRow > 1) {
         merges.push({ mergeCells: { range: { sheetId, startRowIndex: startRow, endRowIndex: endRow, startColumnIndex: col, endColumnIndex: col + 1 }, mergeType: "MERGE_ALL" } });
         for (let r = startRow + 1; r < endRow; r++) matrix[r][col] = cellValue([], FILL[block.type]);
-      }
-      const av = avParts(block);
-      if (av.length) {
-        matrix[startRow][col + 1] = cellValue(av, FILL.internal);
-        if (endRow - startRow > 1) {
+        if (av.length) {
           merges.push({ mergeCells: { range: { sheetId, startRowIndex: startRow, endRowIndex: endRow, startColumnIndex: col + 1, endColumnIndex: col + 2 }, mergeType: "MERGE_ALL" } });
           for (let r = startRow + 1; r < endRow; r++) matrix[r][col + 1] = cellValue([], FILL.internal);
         }
@@ -411,13 +448,8 @@ export function pagWriteRequests(sheetId: number, model: PagModel): Array<Record
     }
   });
 
-  // Nothing is ever silently dropped (Brett, 2026-10-30): dated-but-untimed
-  // blocks sit in their day with a red "No time listed", and dateless blocks
-  // fill the red-flagged "Day not stated" last column above.
-
-  // Column geometry: narrow time rail, wide day columns, wide-ish cue columns.
   const widths: Array<Record<string, unknown>> = [
-    { updateDimensionProperties: { range: { sheetId, dimension: "COLUMNS", startIndex: 0, endIndex: 2 }, properties: { pixelSize: 72 }, fields: "pixelSize" } },
+    { updateDimensionProperties: { range: { sheetId, dimension: "COLUMNS", startIndex: 0, endIndex: 2 }, properties: { pixelSize: 80 }, fields: "pixelSize" } },
   ];
   for (let day = 0; day < dayCount; day++) {
     const col = 2 + day * 2;
