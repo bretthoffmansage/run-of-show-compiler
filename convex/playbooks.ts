@@ -6,7 +6,7 @@ import { connectionToken } from "./sync";
 import { isPagTitle, pagModel, pagWriteRequests, renameCopiedTabRequests } from "../lib/playbook-writer";
 
 /** Bump to force every playbook's PAG to regenerate with the new writer. */
-const PAG_WRITER_VERSION = 3;
+const PAG_WRITER_VERSION = 4;
 
 /**
  * The real deliverable: a Google Sheet playbook in the studio account's

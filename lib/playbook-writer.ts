@@ -96,14 +96,40 @@ export interface PagBlock {
 
 export interface PagDay {
   date: string;               // as written in the sources
+  /** The source's own day number ("Day 3" → 3) when it states one. */
+  dayNumber: number | null;
   blocks: PagBlock[];
 }
 
 export interface PagModel {
   days: PagDay[];
-  untimed: PagBlock[];        // no parseable start time: listed under the grid
+  /** Missing a day or a parseable time: listed under the grid, never dumped
+   * into another day's column. */
+  unplaced: PagBlock[];
   /** Sorted distinct minute boundaries that define the grid rows. */
   rail: Array<{ minute: number; label: string }>;
+}
+
+const MONTHS = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"];
+
+/** Sortable ordinal for a date string as sources write them; null when unparseable. */
+export function dateOrdinal(text: string): number | null {
+  const parsed = Date.parse(text);
+  if (!Number.isNaN(parsed)) return parsed;
+  const monthName = text.toLowerCase().match(/(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\.?\s+(\d{1,2})/);
+  if (monthName) return (MONTHS.indexOf(monthName[1]) + 1) * 100 + Number(monthName[2]);
+  const numeric = text.match(/(\d{1,2})[/-](\d{1,2})/);
+  if (numeric) return Number(numeric[1]) * 100 + Number(numeric[2]);
+  return null;
+}
+
+/** The source's own day number, from a day field or embedded in the date text. */
+export function dayNumberOf(dayField: string | null, dateText: string | null): number | null {
+  for (const text of [dayField, dateText]) {
+    const match = text?.match(/day\s*(\d+)/i) ?? (text && /^\d+$/.test(text.trim()) ? [text, text.trim()] : null);
+    if (match) return Number(match[1]);
+  }
+  return null;
 }
 
 const BODY_FIELDS = ["script", "additional_detail"] as const;
@@ -118,7 +144,7 @@ const AV_FIELDS: Array<{ key: string; label: string }> = [
 export function pagModel(fields: CompiledField[], now: number): PagModel {
   const byEntry = new Map<string, CompiledField[]>();
   for (const field of fields) byEntry.set(field.entryKey, [...(byEntry.get(field.entryKey) ?? []), field]);
-  const blocks: Array<PagBlock & { date: string | null }> = [...byEntry].map(([entryKey, entryFields]) => {
+  const blocks: Array<PagBlock & { date: string | null; dayNumber: number | null }> = [...byEntry].map(([entryKey, entryFields]) => {
     const get = (key: string) => entryFields.find(field => field.fieldKey === key);
     const start = get("start_time")?.value ?? null;
     const end = get("end_time")?.value ?? null;
@@ -126,6 +152,7 @@ export function pagModel(fields: CompiledField[], now: number): PagModel {
     return {
       entryKey,
       date: get("date")?.value ?? null,
+      dayNumber: dayNumberOf(get("day")?.value ?? null, get("date")?.value ?? null),
       title: get("title")?.value ?? "Title unresolved",
       titleMark: get("title") ? markFor(get("title"), now) : "conflict",
       timeText: start || end ? [start, end].filter(Boolean).join(" - ") : null,
@@ -140,26 +167,30 @@ export function pagModel(fields: CompiledField[], now: number): PagModel {
     };
   });
 
-  // Days run horizontally, ordered chronologically when the date strings
-  // parse, otherwise by first appearance. Undated blocks join the first day
-  // only if timed; otherwise they are untimed footnotes.
-  const dateOrder: string[] = [];
-  for (const block of blocks) if (block.date !== null && !dateOrder.includes(block.date)) dateOrder.push(block.date);
-  const parsedDate = (value: string) => { const t = Date.parse(value); return Number.isNaN(t) ? null : t; };
-  dateOrder.sort((a, b) => {
-    const pa = parsedDate(a); const pb = parsedDate(b);
-    if (pa !== null && pb !== null) return pa - pb;
-    return 0; // keep appearance order when either side is unparseable
-  });
-  const days: PagDay[] = dateOrder.map(date => ({ date, blocks: [] }));
-  const undatedDay: PagDay = { date: "", blocks: [] };
-  const untimed: PagBlock[] = [];
+  // Days run horizontally — Day 1 far left through Day N far right — ordered
+  // by the source's own day number first, then by date, then by appearance.
+  // A block that names no day is NEVER dumped into another day's column: it
+  // goes to the unplaced list under the grid.
+  const dayGroups = new Map<string, { date: string; dayNumber: number | null; appearance: number; blocks: PagBlock[] }>();
+  const unplaced: PagBlock[] = [];
+  let appearance = 0;
   for (const block of blocks) {
-    if (block.startMin === null) { untimed.push(block); continue; }
-    const day = block.date === null ? (days[0] ?? undatedDay) : days[dateOrder.indexOf(block.date)];
-    day.blocks.push(block);
+    if (block.date === null || block.startMin === null) { unplaced.push(block); continue; }
+    let group = dayGroups.get(block.date);
+    if (!group) {
+      group = { date: block.date, dayNumber: block.dayNumber, appearance: appearance++, blocks: [] };
+      dayGroups.set(block.date, group);
+    }
+    if (group.dayNumber === null && block.dayNumber !== null) group.dayNumber = block.dayNumber;
+    group.blocks.push(block);
   }
-  if (!days.length && undatedDay.blocks.length) days.push(undatedDay);
+  const BIG = Number.MAX_SAFE_INTEGER;
+  const days: PagDay[] = [...dayGroups.values()]
+    .sort((a, b) =>
+      ((a.dayNumber ?? BIG) - (b.dayNumber ?? BIG)) ||
+      ((dateOrdinal(a.date) ?? BIG) - (dateOrdinal(b.date) ?? BIG)) ||
+      (a.appearance - b.appearance))
+    .map(group => ({ date: group.date, dayNumber: group.dayNumber, blocks: group.blocks }));
   for (const day of days) day.blocks.sort((a, b) => (a.startMin! - b.startMin!) || a.entryKey.localeCompare(b.entryKey));
 
   // Shared time rail: every start/end boundary across all days, labeled with
@@ -175,7 +206,7 @@ export function pagModel(fields: CompiledField[], now: number): PagModel {
     }
   }
   const rail = [...labels.entries()].map(([minute, label]) => ({ minute, label })).sort((a, b) => a.minute - b.minute);
-  return { days, untimed, rail };
+  return { days, unplaced, rail };
 }
 
 // ── Rendering to Sheets API requests ───────────────────────────────────────
@@ -267,8 +298,8 @@ export function pagWriteRequests(sheetId: number, model: PagModel): Array<Record
     ...dayPlacements.flatMap(placements => placements.map(p => p.endRow)),
     HEADER_ROWS + 1,
   );
-  const untimedStart = gridBottom + 1;
-  const totalRows = untimedStart + model.untimed.length + 1;
+  const unplacedStart = gridBottom + 1;
+  const totalRows = unplacedStart + model.unplaced.length + 1;
 
   const matrix: Array<Array<Record<string, unknown>>> = Array.from({ length: totalRows }, () => Array.from({ length: width }, () => ({ userEnteredFormat: { textFormat: FONT, wrapStrategy: "WRAP", verticalAlignment: "TOP" } })));
   const merges: Array<Record<string, unknown>> = [];
@@ -278,10 +309,12 @@ export function pagWriteRequests(sheetId: number, model: PagModel): Array<Record
   matrix[0][1] = cellValue([{ text: "End", bold: true }]);
   model.days.forEach((day, index) => {
     const col = 2 + index * 2;
+    // The source's own day number labels the band; renumbering is invention.
+    const dayLabel = `Day ${day.dayNumber ?? index + 1}`;
     matrix[0][col] = cellValue([{ text: day.date, color: BLACK, bold: true }], undefined, true, 12);
     merges.push({ mergeCells: { range: { sheetId, startRowIndex: 0, endRowIndex: 1, startColumnIndex: col, endColumnIndex: col + 2 }, mergeType: "MERGE_ALL" } });
-    matrix[1][col] = cellValue([{ text: `Day ${index + 1}`, color: WHITE, bold: true }], BAND_TEAL, true, 12);
-    matrix[1][col + 1] = cellValue([{ text: `Day ${index + 1} AV Cues`, color: WHITE, bold: true }], BAND_TEAL, true, 12);
+    matrix[1][col] = cellValue([{ text: dayLabel, color: WHITE, bold: true }], BAND_TEAL, true, 12);
+    matrix[1][col + 1] = cellValue([{ text: `${dayLabel} AV Cues`, color: WHITE, bold: true }], BAND_TEAL, true, 12);
   });
 
   // Time rail labels, exactly as first written.
@@ -312,13 +345,14 @@ export function pagWriteRequests(sheetId: number, model: PagModel): Array<Record
     }
   });
 
-  // Untimed entries: listed under the grid with a red unknown time.
-  if (model.untimed.length) {
-    matrix[untimedStart - 1][0] = cellValue([{ text: "No time provided", bold: true, color: RED }]);
-    model.untimed.forEach((block, index) => {
-      matrix[untimedStart + index][2] = cellValue(blockParts(block), FILL[block.type]);
+  // Unplaced entries (no day stated, or no parseable time): listed under the
+  // grid in red — never dropped into some other day's column.
+  if (model.unplaced.length) {
+    matrix[unplacedStart - 1][0] = cellValue([{ text: "Unplaced — day or time not stated in sources", bold: true, color: RED }]);
+    model.unplaced.forEach((block, index) => {
+      matrix[unplacedStart + index][2] = cellValue(blockParts(block), FILL[block.type]);
       const av = avParts(block);
-      if (av.length) matrix[untimedStart + index][3] = cellValue(av, FILL.internal);
+      if (av.length) matrix[unplacedStart + index][3] = cellValue(av, FILL.internal);
     });
   }
 

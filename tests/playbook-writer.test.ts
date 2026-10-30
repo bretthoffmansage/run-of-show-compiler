@@ -39,17 +39,33 @@ describe("block classification follows what the source calls the block", () => {
 describe("PAG model: days horizontal, time flowing downward", () => {
   const fields = [
     field("a", "date", "October 21"), field("a", "start_time", "9:00:00 AM"), field("a", "end_time", "9:45:00 AM"), field("a", "title", "VIP and General Networking Open"),
-    field("b", "date", "October 21"), field("b", "start_time", "10:00:00 AM"), field("b", "title", "Day 3 Opening Sequence"),
+    field("b", "date", "October 21"), field("b", "start_time", "10:00:00 AM"), field("b", "title", "Day 2 Opening Sequence"),
     field("c", "date", "October 22"), field("c", "start_time", "9:00:00 AM"), field("c", "title", "Crew Call"), field("c", "type", "Team Meeting"),
     field("loose", "title", "Sponsor shoutout"),
   ];
 
-  it("groups blocks into day columns ordered chronologically, untimed listed separately", () => {
+  it("groups blocks into day columns ordered chronologically, unplaced listed separately", () => {
     const model = pagModel(fields, NOW);
     expect(model.days.map(day => day.date)).toEqual(["October 21", "October 22"]);
-    expect(model.days[0].blocks.map(block => block.title)).toEqual(["VIP and General Networking Open", "Day 3 Opening Sequence"]);
+    expect(model.days[0].blocks.map(block => block.title)).toEqual(["VIP and General Networking Open", "Day 2 Opening Sequence"]);
     expect(model.days[1].blocks[0].type).toBe("internal");
-    expect(model.untimed.map(block => block.title)).toEqual(["Sponsor shoutout"]);
+    expect(model.unplaced.map(block => block.title)).toEqual(["Sponsor shoutout"]);
+  });
+
+  it("orders days by the source's own day number and never leaks blocks across days", () => {
+    // Day 3's tab appears FIRST in the source (as BMC45 does) — it must still
+    // land far right, and a dated-but-dayless block stays in its own date column.
+    const model = pagModel([
+      field("c3", "date", "Day 3 – October 21"), field("c3", "day", "Day 3"), field("c3", "start_time", "9:00 AM"), field("c3", "title", "Day 3 Crew Call"),
+      field("c1", "date", "Day 1 – October 19"), field("c1", "day", "Day 1"), field("c1", "start_time", "9:00 AM"), field("c1", "title", "Day 1 Crew Call"),
+      field("c2", "date", "Day 2 – October 20"), field("c2", "day", "Day 2"), field("c2", "start_time", "9:00 AM"), field("c2", "title", "Day 2 Crew Call"),
+      field("x", "start_time", "10:00 AM"), field("x", "title", "No day stated"),
+    ], NOW);
+    expect(model.days.map(day => day.dayNumber)).toEqual([1, 2, 3]);
+    expect(model.days.map(day => day.blocks[0].title)).toEqual(["Day 1 Crew Call", "Day 2 Crew Call", "Day 3 Crew Call"]);
+    // Timed but dayless: unplaced, not dumped into Day 1's column.
+    expect(model.unplaced.map(block => block.title)).toEqual(["No day stated"]);
+    expect(model.days.every(day => day.blocks.every(block => block.title.startsWith(`Day ${day.dayNumber}`)))).toBe(true);
   });
 
   it("builds a shared time rail from boundaries, labeled exactly as written", () => {
