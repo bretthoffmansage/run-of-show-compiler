@@ -46,18 +46,35 @@ export interface SourceActions {
   remove: (form: FormData) => void;
 }
 
-const STALE_AFTER_MS = 10 * 60 * 1000;
+const STALE_AFTER_MS = 10 * 60_000;
 
-function safeOriginalUrl(value: string | null): string | null {
-  if (!value) return null;
+function safeOriginalUrl(url: string | null): string | null {
+  if (!url) return null;
   try {
-    const url = new URL(value);
-    return url.protocol === "https:" && url.hostname === "docs.google.com" ? url.toString() : null;
+    return new URL(url).protocol === "https:" ? url : null;
   } catch { return null; }
 }
 
+/** The client's document rendered live. Google Docs/Sheets and Drive files embed via /preview. */
+function embedUrl(url: string | null): string | null {
+  const safe = safeOriginalUrl(url);
+  if (!safe) return null;
+  const parsed = new URL(safe);
+  if (parsed.hostname === "docs.google.com") {
+    const match = parsed.pathname.match(/^\/(document|spreadsheets)(?:\/u\/\d+)?\/d\/([^/]+)/);
+    if (match) return `https://docs.google.com/${match[1]}/d/${match[2]}/preview`;
+    return null;
+  }
+  if (parsed.hostname === "drive.google.com") {
+    const match = parsed.pathname.match(/^\/file(?:\/u\/\d+)?\/d\/([^/]+)/);
+    if (match) return `https://drive.google.com/file/d/${match[1]}/preview`;
+    return null;
+  }
+  return null;
+}
+
 function ago(value: number | null): string {
-  if (!value) return "never";
+  if (value === null) return "never";
   const minutes = Math.max(0, Math.round((Date.now() - value) / 60_000));
   if (minutes < 1) return "just now";
   if (minutes < 60) return `${minutes}m ago`;
@@ -87,64 +104,78 @@ function sourceStatus(source: WorkspaceSource): { label: string; tone: "ok" | "w
   }
 }
 
-export function Workspace({ sources, entries, actions, playbookUrl, playbookShared }: { sources: WorkspaceSource[]; entries: WorkspaceEntry[]; actions?: SourceActions; playbookUrl?: string | null; playbookShared?: boolean }) {
+/**
+ * Tabbed client-document viewer: browser-style tabs across the top (they
+ * switch only this pane), the selected document rendered as a live embed —
+ * the extracted-text view stays available as a toggle, since an embed can
+ * only render for viewers whose Google account can open the file.
+ */
+export function SourcePane({ sources, actions, fill }: { sources: WorkspaceSource[]; actions?: SourceActions; fill?: boolean }) {
   const [selectedId, setSelectedId] = useState(sources[0]?.id ?? null);
+  const [view, setView] = useState<"document" | "text">("document");
   const selected = sources.find(source => source.id === selectedId) ?? sources[0];
   const status = selected ? sourceStatus(selected) : null;
+  const embed = selected ? embedUrl(selected.originalUrl) : null;
+  const showEmbed = view === "document" && embed !== null;
+  return (
+    <section className={`pane source-pane${fill ? " pane-fill" : ""}`} aria-labelledby="sources-title">
+      {sources.length ? <>
+        <div className="source-tabs" aria-label="Source documents">
+          {sources.map(source => <button key={source.id} type="button" aria-pressed={selected?.id === source.id} onClick={() => setSelectedId(source.id)}>{source.name}</button>)}
+        </div>
+        {selected && status && <>
+          <div className="source-toolbar">
+            <span className={`status-chip status-${status.tone}`} suppressHydrationWarning>{status.label}</span>
+            <span className="metadata" suppressHydrationWarning>
+              {selected.provider === "manual"
+                ? "Static input · no live sync"
+                : `Checked ${ago(selected.lastCheckedAt)} · Synced ${ago(selected.lastSyncAt)}${selected.lastRevision ? ` · Rev ${selected.lastRevision}` : ""}`}
+            </span>
+            <span className="toolbar-spacer" />
+            {embed && <span className="view-toggle" role="group" aria-label="Source view">
+              <button type="button" className="quiet-button" aria-pressed={view === "document"} onClick={() => setView("document")}>Document</button>
+              <button type="button" className="quiet-button" aria-pressed={view === "text"} onClick={() => setView("text")}>Text</button>
+            </span>}
+            {safeOriginalUrl(selected.originalUrl) && <a href={safeOriginalUrl(selected.originalUrl)!} target="_blank" rel="noopener noreferrer">Open original ↗</a>}
+            {actions && <>
+              {selected.provider !== "manual" && selected.state !== "paused" && <form action={actions.refresh}><input type="hidden" name="eventId" value={selected.eventId} /><input type="hidden" name="sourceId" value={selected.id} /><button type="submit" className="quiet-button">Refresh now</button></form>}
+              {selected.provider !== "manual" && <form action={actions.setPaused}><input type="hidden" name="eventId" value={selected.eventId} /><input type="hidden" name="sourceId" value={selected.id} /><input type="hidden" name="paused" value={selected.state === "paused" ? "false" : "true"} /><button type="submit" className="quiet-button">{selected.state === "paused" ? "Resume sync" : "Pause sync"}</button></form>}
+              <form action={actions.remove}><input type="hidden" name="eventId" value={selected.eventId} /><input type="hidden" name="sourceId" value={selected.id} /><button type="submit" className="quiet-button danger">Remove</button></form>
+            </>}
+          </div>
+          {showEmbed
+            ? <iframe key={selected.id} className="source-embed" src={embed!} title={selected.name} referrerPolicy="no-referrer" />
+            : <pre className="source-text">{selected.preview ?? "No accessible snapshot or preview is available yet."}</pre>}
+        </>}
+      </> : <div className="empty"><span className="empty-mark" aria-hidden="true">↗</span><h3>No sources yet</h3><p>Connect a Google Doc or Sheet, or paste a static source, in the intake panel below.</p></div>}
+    </section>
+  );
+}
+
+/** The compiled run of show as a list, with the red/pink marking legend. */
+export function CompiledEntries({ entries }: { entries: WorkspaceEntry[] }) {
   const dayHeadings = entries.map((entry, index) => {
     const previousDate = entries.slice(0, index).findLast(prior => prior.date)?.date ?? null;
     return entry.date && entry.date !== previousDate ? entry.date : null;
   });
-  return (
-    <div className="panes">
-      <section className="pane" aria-labelledby="sources-title">
-        <div className="pane-heading"><span className="eyebrow">01 / INPUTS</span><h2 id="sources-title">Sources</h2></div>
-        {sources.length ? <>
-          <div className="source-tabs" aria-label="Source documents">
-            {sources.map(source => <button key={source.id} type="button" aria-pressed={selected?.id === source.id} onClick={() => setSelectedId(source.id)}>{source.name}</button>)}
-          </div>
-          {selected && status && <div className="source-detail">
-            <p className="eyebrow">{selected.provider.replaceAll("_", " ")} · <span className={`status-chip status-${status.tone}`} suppressHydrationWarning>{status.label}</span></p>
-            <h3>{selected.name}</h3>
-            <p className="metadata" suppressHydrationWarning>
-              {selected.provider === "manual"
-                ? "Static input · no live sync"
-                : `Checked ${ago(selected.lastCheckedAt)} · Synced ${ago(selected.lastSyncAt)}${selected.lastRevision ? ` · Rev ${selected.lastRevision}` : ""}`}
-            </p>
-            {actions && <div className="source-controls">
-              {selected.provider !== "manual" && selected.state !== "paused" && <form action={actions.refresh}><input type="hidden" name="eventId" value={selected.eventId} /><input type="hidden" name="sourceId" value={selected.id} /><button type="submit" className="quiet-button">Refresh now</button></form>}
-              {selected.provider !== "manual" && <form action={actions.setPaused}><input type="hidden" name="eventId" value={selected.eventId} /><input type="hidden" name="sourceId" value={selected.id} /><input type="hidden" name="paused" value={selected.state === "paused" ? "false" : "true"} /><button type="submit" className="quiet-button">{selected.state === "paused" ? "Resume sync" : "Pause sync"}</button></form>}
-              <form action={actions.remove}><input type="hidden" name="eventId" value={selected.eventId} /><input type="hidden" name="sourceId" value={selected.id} /><button type="submit" className="quiet-button danger">Remove from event</button></form>
-            </div>}
-            <pre>{selected.preview ?? "No accessible snapshot or preview is available yet."}</pre>
-            {safeOriginalUrl(selected.originalUrl) && <a href={safeOriginalUrl(selected.originalUrl)!} target="_blank" rel="noopener noreferrer">Open original ↗</a>}
-          </div>}
-        </> : <div className="empty"><span className="empty-mark" aria-hidden="true">↗</span><h3>No sources yet</h3><p>Connect a Google Doc or Sheet, or paste a static source, in the intake panel below.</p></div>}
-      </section>
-      <section className="pane" aria-labelledby="master-title">
-        <div className="pane-heading"><span className="eyebrow">02 / PLAYBOOK</span><h2 id="master-title">Playbook</h2>{playbookUrl && <a className="playbook-link" href={playbookUrl} target="_blank" rel="noopener noreferrer">Open playbook ↗</a>}</div>
-        {playbookUrl && playbookShared && <iframe className="playbook-embed" src={`${playbookUrl.replace(/\/edit.*$/, "")}/preview`} title="Playbook spreadsheet" referrerPolicy="no-referrer" />}
-        {playbookUrl && !playbookShared && <p className="muted playbook-pending">The playbook sheet exists but isn&apos;t link-shared yet, so it can&apos;t display here. It shares itself within a couple of minutes once the Google connection has the latest permissions (see the banner above if one is showing).</p>}
-        {entries.length ? <div className="master-list">
-          {entries.map((entry, index) => {
-            const dayHeading = dayHeadings[index];
-            return (
-              <div key={entry.id}>
-                {dayHeading && <p className="day-heading">{dayHeading}</p>}
-                <article className="master-entry">
-                  <div className="entry-top"><time className={markClass(entry.timeMark)}>{entry.time ?? "Time unresolved"}</time>{entry.changeState !== "approved" && <span className={`change-badge ${markClass(entry.changeState === "conflict" ? "conflict" : "changed")}`}>{entry.changeState === "conflict" ? "sources disagree" : "changed"}</span>}</div>
-                  <h3 className={markClass(entry.titleMark)}>{entry.title}</h3>
-                  {entry.speaker && <p className={`entry-speaker ${markClass(entry.speakerMark)}`}>{entry.speaker}</p>}
-                  {entry.details && <p className={markClass(entry.detailsMark)}>{entry.details}</p>}
-                  {entry.extras.length > 0 && <ul className="entry-extras">{entry.extras.map(extra => <li key={extra.key}><span>{extra.key.replaceAll("_", " ")}</span><span className={markClass(extra.mark)}>{extra.value}</span></li>)}</ul>}
-                  <p className="provenance">Source: {entry.sourceName ?? "Operator"}{entry.sourceRevision ? ` · Revision ${entry.sourceRevision}` : ""}</p>
-                </article>
-              </div>
-            );
-          })}
-          <p className="review-note"><span className="text-conflict">Red</span> = your sources disagree or the value is unresolved — ask the client. <span className="text-changed">Pink</span> = changed by a source edit in the last 24 hours.</p>
-        </div> : <div className="empty"><span className="empty-mark" aria-hidden="true">≡</span><h3>Nothing compiled yet</h3><p>Connect a source and the run of show compiles itself — no approvals, no buttons.</p></div>}
-      </section>
-    </div>
-  );
+  if (!entries.length) return <div className="empty"><span className="empty-mark" aria-hidden="true">≡</span><h3>Nothing compiled yet</h3><p>Connect a source and the run of show compiles itself — no approvals, no buttons.</p></div>;
+  return <div className="master-list">
+    {entries.map((entry, index) => {
+      const dayHeading = dayHeadings[index];
+      return (
+        <div key={entry.id}>
+          {dayHeading && <p className="day-heading">{dayHeading}</p>}
+          <article className="master-entry">
+            <div className="entry-top"><time className={markClass(entry.timeMark)}>{entry.time ?? "Time unresolved"}</time>{entry.changeState !== "approved" && <span className={`change-badge ${markClass(entry.changeState === "conflict" ? "conflict" : "changed")}`}>{entry.changeState === "conflict" ? "sources disagree" : "changed"}</span>}</div>
+            <h3 className={markClass(entry.titleMark)}>{entry.title}</h3>
+            {entry.speaker && <p className={`entry-speaker ${markClass(entry.speakerMark)}`}>{entry.speaker}</p>}
+            {entry.details && <p className={markClass(entry.detailsMark)}>{entry.details}</p>}
+            {entry.extras.length > 0 && <ul className="entry-extras">{entry.extras.map(extra => <li key={extra.key}><span>{extra.key.replaceAll("_", " ")}</span><span className={markClass(extra.mark)}>{extra.value}</span></li>)}</ul>}
+            <p className="provenance">Source: {entry.sourceName ?? "Operator"}{entry.sourceRevision ? ` · Revision ${entry.sourceRevision}` : ""}</p>
+          </article>
+        </div>
+      );
+    })}
+    <p className="review-note"><span className="text-conflict">Red</span> = your sources disagree or the value is unresolved — ask the client. <span className="text-changed">Pink</span> = changed by a source edit in the last 24 hours.</p>
+  </div>;
 }

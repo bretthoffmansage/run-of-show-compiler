@@ -197,7 +197,8 @@ textarea { line-height: 1.5; resize: vertical; }
   .app-rail { position: static; height: auto; flex-direction: row; align-items: center; gap: 16px; padding: 12px 16px; border-right: 0; border-bottom: 1px solid var(--border); }
   .app-brand { padding: 0; border: 0; flex: 0 0 auto; }
   .app-nav { display: flex; margin: 0; gap: 4px; }
-  .app-nav .nav-label, .rail-context, .rail-foot { display: none; }
+  .app-nav .nav-label, .rail-context, .rail-foot, .rail-pickers, .rail-foot-links { display: none; }
+  .app-rail { width: auto; }
   .dashboard, .event-page { padding-top: 22px; }
   .panes { grid-template-columns: 1fr; }
 }
@@ -209,19 +210,70 @@ textarea { line-height: 1.5; resize: vertical; }
   .dashboard-panel { padding: 16px; }
 }
 
-/* Split screen: sources (left, tabbed) / playbook (right). The left pane gets
-   a native drag handle so the operator can slide the divider either way; the
-   right pane absorbs whatever width is left. */
-.panes { display: flex; align-items: stretch; }
-.panes > .pane:first-child { flex: 0 1 auto; width: 48%; resize: horizontal; overflow: auto; min-width: 240px; max-width: 75%; }
-.panes > .pane:last-child { flex: 1 1 0; }
+/* ── SAGE rail (proof-of-concept): thin cream sidebar, script logo, bulleted
+   organization/event pickers with the event's pages nested underneath. */
+.app-rail { background: #f6f1e7; border-right: 1px solid #e3dcca; color: #26241f; width: 210px; }
+.app-frame { grid-template-columns: 210px minmax(0, 1fr); }
+.app-rail .nav-label { color: #8a8372; }
+.app-brand { border-bottom: 0; padding-bottom: 8px; }
+.brand-script { font-family: "Savoye LET", "Snell Roundhand", "Segoe Script", "Brush Script MT", cursive; font-size: 34px; font-weight: 400; letter-spacing: 0.01em; color: #1fa0a8; line-height: 1; }
+.rail-pickers { margin-top: 18px; display: grid; gap: 4px; align-content: start; }
+.rail-pickers .nav-label { margin: 14px 0 6px; font-size: 10px; letter-spacing: 0.18em; }
+.rail-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; }
+.rail-list > li > a, .rail-list .rail-hint { display: block; padding: 4px 6px 4px 16px; position: relative; color: #3d3a32; font-size: 13.5px; border-radius: 6px; }
+.rail-list > li > a::before, .rail-sub a::before, .rail-sub .rail-hint::before { content: "•"; position: absolute; left: 4px; color: #8a8372; }
+.rail-list a:hover { background: #ece5d4; text-decoration: none; }
+.rail-list .rail-active { font-weight: 700; color: #111; }
+.rail-sub { list-style: none; margin: 0 0 4px; padding: 0 0 0 14px; display: grid; gap: 1px; }
+.rail-sub a, .rail-sub .rail-hint { display: block; position: relative; padding: 2px 6px 2px 16px; color: #6a6557; font-size: 12.5px; border-radius: 6px; }
+.rail-sub .rail-hint::before { content: "•"; }
+.rail-sub .rail-active { color: #1fa0a8; font-weight: 700; }
+.rail-foot-links { margin-top: auto; padding-top: 12px; border-top: 1px solid #e3dcca; }
+.rail-foot-links a { color: #8a8372; font-size: 12px; }
+.app-rail .rail-context { background: #efe9da; border-color: #e3dcca; }
+.app-rail .rail-context strong { color: #26241f; }
+.app-rail .rail-context a, .app-rail .rail-hint { color: #8a8372; }
+.app-rail .app-nav a { color: #5c5749; }
+.app-rail .app-nav a:hover, .app-rail .app-nav .app-nav-active { background: #ece5d4; color: #111; border-color: #e3dcca; }
+
+/* ── Full-screen pages: the content area owns the whole viewport beside the
+   rail; the main display (sources viewer or split screen) fills it and the
+   secondary panels scroll below the fold. */
+.page-full { display: flex; flex-direction: column; gap: 12px; min-height: 100vh; padding: 16px 20px 40px; }
+.page-head { display: flex; align-items: center; gap: 18px; flex-wrap: wrap; }
+.page-head h1 { font-size: 18px; }
+.page-head .workspace-status { margin: 0; }
+.page-head-actions { margin-left: auto; display: flex; align-items: center; gap: 10px; }
+.primary-link { display: inline-block; padding: 8px 14px; border-radius: var(--r); background: var(--primary); color: var(--primary-fg); font-size: 13px; font-weight: 600; }
+.primary-link:hover { background: #fff; text-decoration: none; }
+.pane-fill { flex: 1 1 auto; display: flex; flex-direction: column; min-height: 0; height: calc(100vh - 150px); }
+.source-pane { padding: 0 14px 12px; }
+.source-pane .source-tabs { padding-top: 10px; }
+.source-toolbar { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; padding: 8px 0; font-size: 12px; }
+.source-toolbar .toolbar-spacer { flex: 1; }
+.source-toolbar form { display: inline; }
+.source-toolbar .quiet-button { min-height: 28px; padding: 3px 10px; font-size: 11.5px; }
+.view-toggle { display: inline-flex; gap: 0; }
+.view-toggle .quiet-button[aria-pressed="true"] { background: var(--hover); color: var(--fg); border-color: var(--border-strong); }
+.source-embed { flex: 1 1 auto; min-height: 320px; width: 100%; border: 1px solid var(--border); border-radius: var(--r); background: #fff; }
+.source-text { flex: 1 1 auto; min-height: 320px; margin: 0; padding: 12px; overflow: auto; border: 1px solid var(--border); border-radius: var(--r); background: var(--inset); color: #d4d4d4; font-size: 12px; line-height: 1.6; white-space: pre-wrap; overflow-wrap: anywhere; }
+.event-tools { margin-top: 10px; }
+
+/* ── The split page: documents left, playbook right, draggable divider. */
+.split-page { padding-bottom: 0; }
+.page-head.slim { min-height: 0; }
+.split-full { flex: 1 1 auto; display: flex; align-items: stretch; min-height: 0; height: calc(100vh - 86px); margin: 0 -20px; }
+.split-left { flex: 0 1 auto; width: 46%; min-width: 300px; max-width: 78%; resize: horizontal; overflow: auto; display: flex; border-right: 5px solid #000; }
+.split-left .source-pane { flex: 1; border-radius: 0; border: 0; height: auto; }
+.split-right { flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; background: #fff; }
+.split-playbook { flex: 1; width: 100%; border: 0; background: #fff; }
+.split-right .playbook-pending { margin: 24px; color: #444; }
 @media (max-width: 980px) {
-  .panes { flex-direction: column; }
-  .panes > .pane:first-child { width: auto; max-width: none; resize: none; }
+  .split-full { flex-direction: column; height: auto; }
+  .split-left { width: auto; max-width: none; resize: none; border-right: 0; border-bottom: 5px solid #000; }
+  .split-right { min-height: 70vh; }
+  .pane-fill { height: auto; min-height: 60vh; }
 }
-.pane-heading:has(.playbook-link) { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
-.playbook-link { margin-left: auto; font-size: 13px; }
-.playbook-embed { width: 100%; height: 420px; border: 1px solid rgba(127, 127, 127, 0.35); border-radius: 8px; background: #fff; margin: 14px 18px 0; width: calc(100% - 36px); }
 
 /* Compiler marks: text color only, never background — red = sources disagree
    or unresolved (ask the client), pink = changed by a source edit recently. */
