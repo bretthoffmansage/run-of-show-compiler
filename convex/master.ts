@@ -71,11 +71,9 @@ export const ingestExtraction = internalMutation({
           (field.origin !== "source_exact" || field.evidence.snippet.includes(field.value)) &&
           field.confidence >= 0 && field.confidence <= 1;
         if (!valid) { skipped++; continue; }
-        // A value matching the master is quiet — unless that field is flagged
-        // as a conflict, in which case the agreement must recompile so the
-        // red mark can clear.
-        const priorField = priorFields.get(`${entryKey}\u0000${field.key}`);
-        if (priorField?.value === field.value && !priorField.conflict) { skipped++; continue; }
+        // Every valid field of this snapshot gets its proposal: the compile
+        // below rebuilds from each source's LATEST snapshot only, so a claim
+        // not re-recorded here would silently drop out of the master.
         const dedupeKey = `${entryKey}\u0000${field.key}\u0000${field.value}`;
         if (pendingSet.has(dedupeKey)) { skipped++; continue; }
         pendingSet.add(dedupeKey);
@@ -90,30 +88,42 @@ export const ingestExtraction = internalMutation({
     }
     if (!created) return { created, skipped, applied: 0 };
 
-    // ── Auto-compile the affected fields ────────────────────────────────────
+    // ── Recompile: the master mirrors the CURRENT documents ────────────────
+    // Claims come only from each source's latest extracted snapshot, so rows
+    // that disappear from a document disappear from the compile instead of
+    // lingering from stale snapshots. Operator manual edits are kept for
+    // fields no current source claims.
     const createdProposals = (await Promise.all(createdIds.map(id => ctx.db.get(id)))).filter((p): p is Doc<"masterProposals"> => p !== null);
-    const affectedKeys = new Set(createdProposals.map(p => `${p.entryKey}\u0000${p.fieldKey}`));
-    // Candidate pool: every non-rejected proposal for an affected field, across all sources.
-    const candidates = [...existing, ...createdProposals].filter(p => p.state !== "rejected" && affectedKeys.has(`${p.entryKey}\u0000${p.fieldKey}`));
-    const snapshotIds = [...new Set(candidates.map(p => p.snapshotId))];
+    const allProposals = [...existing.filter(p => p.state !== "rejected"), ...createdProposals];
+    const snapshotIds = [...new Set(allProposals.map(p => p.snapshotId))];
     const snapshotDocs = await Promise.all(snapshotIds.map(id => ctx.db.get(id)));
     const snapshotInfo = new Map(snapshotIds.map((id, i) => [id, snapshotDocs[i]]));
+    const latestSnapshotBySource = new Map<string, { snapshotId: typeof snapshotIds[number]; capturedAt: number }>();
+    for (const snapId of snapshotIds) {
+      const info = snapshotInfo.get(snapId);
+      if (!info) continue;
+      const sourceKey = String(info.sourceId);
+      const incumbent = latestSnapshotBySource.get(sourceKey);
+      if (!incumbent || info.capturedAt > incumbent.capturedAt || (info.capturedAt === incumbent.capturedAt && String(snapId) === String(snapshotId))) {
+        latestSnapshotBySource.set(sourceKey, { snapshotId: snapId, capturedAt: info.capturedAt });
+      }
+    }
+    const liveSnapshots = new Set([...latestSnapshotBySource.values()].map(entry => String(entry.snapshotId)));
+    const candidates = allProposals.filter(p => liveSnapshots.has(String(p.snapshotId)));
+    const keys = [...new Set(candidates.map(p => `${p.entryKey}\u0000${p.fieldKey}`))];
     const newFields: Doc<"masterRevisions">["fields"] = [];
-    for (const key of affectedKeys) {
+    for (const key of keys) {
       const [entryKey, fieldKey] = key.split("\u0000");
       const forKey = candidates.filter(p => p.entryKey === entryKey && p.fieldKey === fieldKey);
-      // Latest candidate per source decides that source's current claim.
-      // Candidates are ordered oldest-first ([...existing, ...created]), so a
-      // timestamp tie resolves toward the newer insertion.
-      const latestBySource = new Map<string, Doc<"masterProposals">>();
+      // One live snapshot per source; within it, the newest proposal is that
+      // source's claim.
+      const claimBySource = new Map<string, Doc<"masterProposals">>();
       for (const candidate of forKey) {
-        const capturedAt = snapshotInfo.get(candidate.snapshotId)?.capturedAt ?? candidate.createdAt;
         const sourceKey = String(snapshotInfo.get(candidate.snapshotId)?.sourceId ?? candidate.snapshotId);
-        const incumbent = latestBySource.get(sourceKey);
-        const incumbentAt = incumbent ? (snapshotInfo.get(incumbent.snapshotId)?.capturedAt ?? incumbent.createdAt) : -1;
-        if (!incumbent || capturedAt > incumbentAt || (capturedAt === incumbentAt && candidate.createdAt >= incumbent.createdAt)) latestBySource.set(sourceKey, candidate);
+        const incumbent = claimBySource.get(sourceKey);
+        if (!incumbent || candidate.createdAt >= incumbent.createdAt) claimBySource.set(sourceKey, candidate);
       }
-      const claims = [...latestBySource.values()];
+      const claims = [...claimBySource.values()];
       const conflict = new Set(claims.map(c => c.proposedValue)).size > 1;
       // Most recently captured source wins the cell; conflict renders red.
       const winner = claims.reduce((best, c) => {
@@ -122,16 +132,27 @@ export const ingestExtraction = internalMutation({
         return at > bestAt || (at === bestAt && c.createdAt >= best.createdAt) ? c : best;
       });
       const prior = priorFields.get(key);
-      if (prior && prior.value === winner.proposedValue && Boolean(prior.conflict) === conflict) continue;
       newFields.push({
         entryKey, fieldKey, value: winner.proposedValue, origin: "source", snapshotId: winner.snapshotId,
         conflict: conflict || undefined,
         changedAt: prior && prior.value !== winner.proposedValue ? now : prior?.changedAt,
       });
     }
+    // Operator corrections survive until a current source claims the field.
+    const keySet = new Set(keys);
+    for (const [key, prior] of priorFields) {
+      if (prior.origin === "operator" && !keySet.has(key)) newFields.push(prior);
+    }
+    // A new immutable revision only when the compile actually changed.
+    const fingerprint = (fields: Doc<"masterRevisions">["fields"]) => JSON.stringify(
+      [...fields]
+        .sort((a, b) => `${a.entryKey}\u0000${a.fieldKey}`.localeCompare(`${b.entryKey}\u0000${b.fieldKey}`))
+        .map(f => [f.entryKey, f.fieldKey, f.value, Boolean(f.conflict), f.changedAt ?? 0, f.origin]),
+    );
+    const changed = fingerprint(newFields) !== fingerprint(latestRevision?.fields ?? []);
     let masterRevisionId: Id<"masterRevisions"> | null = null;
-    if (newFields.length) {
-      masterRevisionId = await nextRevision(ctx, eventId, "auto-compiler", newFields);
+    if (changed) {
+      masterRevisionId = await replaceRevision(ctx, eventId, "auto-compiler", newFields);
       // The compiled result flows straight into the Google Sheet playbook.
       await ctx.scheduler.runAfter(0, internal.playbooks.syncPlaybook, { eventId });
     }
@@ -139,7 +160,7 @@ export const ingestExtraction = internalMutation({
       await ctx.db.patch(proposal._id, { state: "approved", decidedBy: "auto-compiler", decidedAt: now });
       await ctx.db.insert("masterDecisions", { eventId, proposalId: proposal._id, kind: "approve", actor: "auto-compiler", at: now, ...(masterRevisionId ? { masterRevisionId } : {}) });
     }
-    return { created, skipped, applied: newFields.length };
+    return { created, skipped, applied: changed ? newFields.length : 0 };
   },
 });
 
@@ -168,6 +189,12 @@ export const history = query({
     return { revisions, decisions };
   },
 });
+
+/** Full-replace revision: the compile IS the current documents' state. */
+async function replaceRevision(ctx: MutationCtx, eventId: Id<"events">, actor: string, fields: Doc<"masterRevisions">["fields"]) {
+  const previous = await ctx.db.query("masterRevisions").withIndex("by_event", q => q.eq("eventId", eventId)).order("desc").first();
+  return ctx.db.insert("masterRevisions", { eventId, number: (previous?.number ?? 0) + 1, fields, createdAt: Date.now(), approvedBy: actor });
+}
 
 async function nextRevision(ctx: MutationCtx, eventId: Id<"events">, actor: string, newFields: Doc<"masterRevisions">["fields"]) {
   const previous = await ctx.db.query("masterRevisions").withIndex("by_event", q => q.eq("eventId", eventId)).order("desc").first();

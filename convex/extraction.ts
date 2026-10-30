@@ -46,6 +46,13 @@ export const snapshotContext = internalQuery({
   },
 });
 
+/**
+ * Bump when the extraction rules change meaningfully (e.g. verbatim times,
+ * day-header dates): the reaper cron then re-extracts every source's latest
+ * snapshot under the new rules and the compile rebuilds from the result.
+ */
+export const EXTRACTION_PROMPT_VERSION = 2;
+
 export const startRun = internalMutation({
   args: {
     eventId: v.id("events"),
@@ -54,10 +61,11 @@ export const startRun = internalMutation({
     model: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
-    // At most one non-failed run per snapshot keeps reprocessing idempotent.
+    // At most one non-failed CURRENT-RULES run per snapshot keeps
+    // reprocessing idempotent; older-rules runs don't block a re-extract.
     const runs = await ctx.db.query("extractionRuns").withIndex("by_snapshot", q => q.eq("snapshotId", args.snapshotId)).collect();
-    if (runs.some(run => run.status !== "failed")) return null;
-    return ctx.db.insert("extractionRuns", { ...args, status: "running", startedAt: Date.now() });
+    if (runs.some(run => run.status !== "failed" && (run.promptVersion ?? 1) >= EXTRACTION_PROMPT_VERSION)) return null;
+    return ctx.db.insert("extractionRuns", { ...args, status: "running", startedAt: Date.now(), promptVersion: EXTRACTION_PROMPT_VERSION });
   },
 });
 
@@ -178,14 +186,16 @@ export const reapStuckRuns = internalMutation({
         run.status = "failed";
       }
     }
-    // Retry snapshots whose every run failed (bounded), but only a source's
-    // latest snapshot — an old revision's failure is moot once a newer one
-    // exists.
+    // Retry a source's latest snapshot when it has no successful run under
+    // the CURRENT extraction rules (bounded): covers both failures and
+    // snapshots last extracted under older rules.
     const bySnapshot = new Map<typeof runs[number]["snapshotId"], typeof runs>();
     for (const run of runs) bySnapshot.set(run.snapshotId, [...(bySnapshot.get(run.snapshotId) ?? []), run]);
     const retry: Array<typeof runs[number]["snapshotId"]> = [];
     for (const [snapshotId, group] of bySnapshot) {
-      if (group.some(run => run.status !== "failed") || group.length >= MAX_AUTO_RETRIES) continue;
+      const currentRuns = group.filter(run => (run.promptVersion ?? 1) >= EXTRACTION_PROMPT_VERSION);
+      if (currentRuns.some(run => run.status !== "failed")) continue;
+      if (currentRuns.length >= MAX_AUTO_RETRIES) continue;
       const snapshot = await ctx.db.get(snapshotId);
       if (!snapshot) continue;
       const latest = await ctx.db.query("sourceSnapshots").withIndex("by_source", q => q.eq("sourceId", snapshot.sourceId)).order("desc").first();

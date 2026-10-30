@@ -244,7 +244,7 @@ function colorOf(mark: Mark) {
 function blockParts(block: PagBlock): TextPart[] {
   const parts: TextPart[] = [{ text: block.title, color: colorOf(block.titleMark), bold: true }];
   if (block.timeText) parts.push({ text: `\n${block.timeText}`, color: colorOf(block.timeMark), bold: true });
-  else parts.push({ text: "\n( -- time)", color: RED });
+  else parts.push({ text: "\nNo time listed", color: RED, bold: true });
   if (block.speaker) parts.push({ text: `\n${block.speaker}`, color: colorOf(block.speakerMark) });
   for (const line of block.body) parts.push({ text: `\n\n${line.text}`, color: colorOf(line.mark) });
   return parts;

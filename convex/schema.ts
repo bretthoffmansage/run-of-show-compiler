@@ -84,6 +84,8 @@ export default defineSchema({
     snapshotId: v.id("sourceSnapshots"),
     status: v.union(v.literal("running"), v.literal("succeeded"), v.literal("failed")),
     engine: v.union(v.literal("gateway"), v.literal("anthropic"), v.literal("fallback")),
+    /** Extraction rules version; bumping re-extracts latest snapshots. */
+    promptVersion: v.optional(v.number()),
     model: v.optional(v.string()),
     error: v.optional(v.string()),
     startedAt: v.number(),

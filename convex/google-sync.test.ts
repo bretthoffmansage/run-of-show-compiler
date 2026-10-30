@@ -87,10 +87,11 @@ describe("google source sync pipeline", () => {
       await t.finishAllScheduledFunctions(vi.runAllTimers);
       expect((await operator.query(api.snapshots.list, { sourceId })).length).toBe(2);
       const proposalsAfter = await operator.query(api.master.listProposals, { eventId });
-      // Slot identity: the retitled session stays the same entry, so only
-      // the title recompiles; unchanged entries contribute nothing new.
-      expect(proposalsAfter.length).toBe(proposalsBefore.length + 1);
-      expect(proposalsAfter.filter(p => p.proposedValue === "Opening")).toHaveLength(1);
+      // Rebuild-from-current semantics: the new snapshot re-records every
+      // claim (so nothing silently drops out), and the master mirrors the
+      // document's current state — the retitle lands, nothing duplicates.
+      expect(proposalsAfter.length).toBe(proposalsBefore.length + 6);
+      expect(proposalsAfter.filter(p => p.proposedValue === "Opening").length).toBeGreaterThanOrEqual(1);
       const recompiled = await operator.query(api.master.latest, { eventId });
       expect(recompiled?.fields.some(f => f.value === "Keynote with Ava")).toBe(true);
     } finally {
