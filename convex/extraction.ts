@@ -6,7 +6,7 @@ import { extractFromExcerpt, type ExtractionOutput, type ModelAdapter } from "..
 import { anthropicAdapter, DEFAULT_EXTRACTION_MODEL } from "../lib/anthropic-extraction";
 import { DEFAULT_GATEWAY_MODEL, gatewayAdapter } from "../lib/gateway-extraction";
 import { fallbackAdapter } from "../lib/fallback-parser";
-import { chunkByLines } from "../lib/chunk-text";
+import { chunkByLines, chunkBySections, headerNamesDay } from "../lib/chunk-text";
 
 type Engine = "gateway" | "anthropic" | "fallback";
 
@@ -51,7 +51,7 @@ export const snapshotContext = internalQuery({
  * day-header dates): the reaper cron then re-extracts every source's latest
  * snapshot under the new rules and the compile rebuilds from the result.
  */
-export const EXTRACTION_PROMPT_VERSION = 4;
+export const EXTRACTION_PROMPT_VERSION = 5;
 
 export const startRun = internalMutation({
   args: {
@@ -127,15 +127,17 @@ export const runSnapshot = internalAction({
       // parallel so the whole document fits the time budget, and chunks that
       // still overflow the model's output bisect and retry.
       const deadline = Date.now() + 8 * 60 * 1000;
-      const queue = chunkByLines(context.content, 10_000).slice(0, 48).map(chunk => ({ chunk, depth: 0, retries: 0 }));
+      // Tab-aware chunks: each belongs to exactly one tab and starts with
+      // that tab's "# <title>" header, so no row is cut off from its day.
+      const queue = chunkBySections(context.content, 10_000).slice(0, 60).map(section => ({ chunk: section.text, header: section.header, depth: 0, retries: 0 }));
       const items: ExtractionOutput["items"] = [];
       let attempted = 0;
       let failedChunks = 0;
       let skippedChunks = 0;
       let firstError: string | null = null;
       const MIN_SPLIT_BYTES = 2_500;
-      const MAX_TASKS = 80;
-      const CONCURRENCY = 5;
+      const MAX_TASKS = 100;
+      const CONCURRENCY = 3;
       const worker = async () => {
         while (queue.length) {
           const task = queue.shift()!;
@@ -143,15 +145,31 @@ export const runSnapshot = internalAction({
           attempted++;
           try {
             const result = await extractFromExcerpt({ sourceId: context.sourceId, revision: context.revision, text: task.chunk }, adapter);
+            // Deterministic day attachment: when the tab header names a day
+            // or date, every row from this chunk carries it verbatim — the
+            // model is not trusted to remember. Rows that already report a
+            // date keep their own.
+            if (headerNamesDay(task.header)) {
+              for (const item of result.items) {
+                if (item.fields.some(f => f.key === "date")) continue;
+                item.fields.push({
+                  key: "date", value: task.header!, origin: "source_exact", confidence: 1,
+                  evidence: { sourceId: context.sourceId, revision: context.revision, snippet: task.header! },
+                });
+              }
+            }
             items.push(...result.items);
           } catch (error) {
             const message = error instanceof Error ? error.message : "chunk failed";
             const dense = /truncated|non-JSON/i.test(message);
             const bytes = new TextEncoder().encode(task.chunk).length;
             if (dense && bytes > MIN_SPLIT_BYTES && task.depth < 4) {
-              // Halve the chunk: smaller input → smaller output → fits the cap.
-              const halves = chunkByLines(task.chunk, Math.max(MIN_SPLIT_BYTES, Math.ceil(bytes / 2)));
-              queue.unshift(...halves.map(half => ({ chunk: half, depth: task.depth + 1, retries: 0 })));
+              // Halve the chunk (keeping its tab header on each half): smaller
+              // input → smaller output → fits the cap.
+              const headerLine = task.header !== null ? `# ${task.header}` : null;
+              const body = headerLine && task.chunk.startsWith(`${headerLine}\n`) ? task.chunk.slice(headerLine.length + 1) : task.chunk;
+              const halves = chunkByLines(body, Math.max(MIN_SPLIT_BYTES, Math.ceil(bytes / 2)));
+              queue.unshift(...halves.map(half => ({ chunk: headerLine ? `${headerLine}\n${half}` : half, header: task.header, depth: task.depth + 1, retries: 0 })));
               continue;
             }
             // Transient provider trouble (rate limits, 5xx): back of the
@@ -171,8 +189,10 @@ export const runSnapshot = internalAction({
         await ctx.runMutation(internal.extraction.finishRun, { runId, status: "failed", error: firstError ?? `ran out of time (${skippedChunks} chunks unprocessed)` });
         return;
       }
-      const ingested: { created: number; skipped: number } = await ctx.runMutation(internal.master.ingestExtraction, { eventId: context.eventId, snapshotId, items: limited });
       const partial = failedChunks + skippedChunks;
+      // A partial read never replaces a complete one: the compile layers it
+      // over the previous complete read instead (see master.ingestExtraction).
+      const ingested: { created: number; skipped: number } = await ctx.runMutation(internal.master.ingestExtraction, { eventId: context.eventId, snapshotId, items: limited, partial: partial > 0 || items.length > limited.length });
       await ctx.runMutation(internal.extraction.finishRun, {
         runId, status: "succeeded", itemCount: limited.length, proposalCount: ingested.created,
         ...(partial ? { error: `partial: ${partial} chunks not processed${firstError ? ` (${firstError})` : ""}` } : {}),

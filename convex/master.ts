@@ -45,8 +45,9 @@ export const ingestExtraction = internalMutation({
     eventId: v.id("events"),
     snapshotId: v.id("sourceSnapshots"),
     items: v.array(v.object({ fields: v.array(extractedField) })),
+    partial: v.optional(v.boolean()),
   },
-  handler: async (ctx, { eventId, snapshotId, items }) => {
+  handler: async (ctx, { eventId, snapshotId, items, partial }) => {
     const snapshot = await ctx.db.get(snapshotId);
     const source = snapshot && await ctx.db.get(snapshot.sourceId);
     const event = await ctx.db.get(eventId);
@@ -83,7 +84,7 @@ export const ingestExtraction = internalMutation({
         const proposalId = await ctx.db.insert("masterProposals", {
           eventId, snapshotId, entryKey, fieldKey: field.key, proposedValue: field.value,
           snippet: field.evidence.snippet, origin: field.origin, confidence: field.confidence,
-          state: "pending", createdAt: now,
+          state: "pending", createdAt: now, ...(partial ? { partial: true } : {}),
         });
         createdIds.push(proposalId);
         created++;
@@ -101,27 +102,31 @@ export const ingestExtraction = internalMutation({
     const snapshotIds = [...new Set(allProposals.map(p => p.snapshotId))];
     const snapshotDocs = await Promise.all(snapshotIds.map(id => ctx.db.get(id)));
     const snapshotInfo = new Map(snapshotIds.map((id, i) => [id, snapshotDocs[i]]));
-    const latestSnapshotBySource = new Map<string, { snapshotId: typeof snapshotIds[number]; capturedAt: number }>();
-    for (const snapId of snapshotIds) {
-      const info = snapshotInfo.get(snapId);
-      if (!info) continue;
-      const sourceKey = String(info.sourceId);
-      const incumbent = latestSnapshotBySource.get(sourceKey);
-      if (!incumbent || info.capturedAt > incumbent.capturedAt || (info.capturedAt === incumbent.capturedAt && String(snapId) === String(snapshotId))) {
-        latestSnapshotBySource.set(sourceKey, { snapshotId: snapId, capturedAt: info.capturedAt });
+    // Per source, the newest extraction batch wins (one ingest stamps all its
+    // proposals with one createdAt) — but a PARTIAL batch never replaces a
+    // complete one: batches stack newest-first down to the most recent
+    // complete read, and an older batch only fills (entry, field) slots the
+    // newer ones didn't cover. A partial re-read can add or update rows; it
+    // can never erase days the complete read found.
+    const sourceOf = (p: Doc<"masterProposals">) => String(snapshotInfo.get(p.snapshotId)?.sourceId ?? p.snapshotId);
+    const batchesBySource = new Map<string, Map<number, Doc<"masterProposals">[]>>();
+    for (const proposal of allProposals) {
+      const source = sourceOf(proposal);
+      const batches = batchesBySource.get(source) ?? new Map<number, Doc<"masterProposals">[]>();
+      batches.set(proposal.createdAt, [...(batches.get(proposal.createdAt) ?? []), proposal]);
+      batchesBySource.set(source, batches);
+    }
+    const candidates: Doc<"masterProposals">[] = [];
+    for (const batches of batchesBySource.values()) {
+      const covered = new Set<string>();
+      for (const createdAt of [...batches.keys()].sort((a, b) => b - a)) {
+        const batch = batches.get(createdAt)!;
+        const fresh = batch.filter(p => !covered.has(`${p.entryKey}\u0000${p.fieldKey}`));
+        candidates.push(...fresh);
+        for (const p of batch) covered.add(`${p.entryKey}\u0000${p.fieldKey}`);
+        if (!batch.some(p => p.partial)) break;
       }
     }
-    const liveSnapshots = new Set([...latestSnapshotBySource.values()].map(entry => String(entry.snapshotId)));
-    // Within a live snapshot, only its NEWEST extraction batch counts (one
-    // ingest stamps all its proposals with one createdAt): re-extracting a
-    // snapshot under new rules fully replaces what the old rules produced.
-    const latestBatch = new Map<string, number>();
-    for (const proposal of allProposals) {
-      const snap = String(proposal.snapshotId);
-      if (!liveSnapshots.has(snap)) continue;
-      latestBatch.set(snap, Math.max(latestBatch.get(snap) ?? 0, proposal.createdAt));
-    }
-    const candidates = allProposals.filter(p => liveSnapshots.has(String(p.snapshotId)) && p.createdAt === latestBatch.get(String(p.snapshotId)));
     const keys = [...new Set(candidates.map(p => `${p.entryKey}\u0000${p.fieldKey}`))];
     const newFields: Doc<"masterRevisions">["fields"] = [];
     for (const key of keys) {

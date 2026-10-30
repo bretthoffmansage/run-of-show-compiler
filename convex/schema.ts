@@ -106,6 +106,8 @@ export default defineSchema({
     confidence: v.number(),
     state: v.union(v.literal("pending"), v.literal("approved"), v.literal("rejected")),
     createdAt: v.number(),
+    /** From an extraction run that didn't read every chunk. */
+    partial: v.optional(v.boolean()),
     decidedBy: v.optional(v.string()),
     decidedAt: v.optional(v.number()),
   }).index("by_event", ["eventId"]).index("by_snapshot", ["snapshotId"]),

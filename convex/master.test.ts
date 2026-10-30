@@ -60,6 +60,25 @@ describe("zero-click compile and immutable master history", () => {
     expect(history.decisions.every(d => d.kind === "approve" && d.actor === "auto-compiler")).toBe(true);
   });
 
+  it("never lets a partial re-read erase rows the complete read found", async () => {
+    const { t, alice, eventId, snapshotId, field } = await fixture();
+    // Complete read: two rows.
+    await t.mutation(internal.master.ingestExtraction, {
+      eventId, snapshotId, items: [
+        { fields: [field("title", "Opening"), field("start_time", "09:00")] },
+        { fields: [field("title", "Break", { snippet: "09:30 Break" }), field("start_time", "09:30", { snippet: "09:30 Break" })] },
+      ],
+    });
+    // Partial re-read of the same snapshot only got the first row back.
+    await new Promise(resolve => setTimeout(resolve, 2));
+    await t.mutation(internal.master.ingestExtraction, {
+      eventId, snapshotId, partial: true, items: [{ fields: [field("title", "Opening"), field("start_time", "09:00")] }],
+    });
+    const revision = await alice.query(api.master.latest, { eventId });
+    const titles = revision?.fields.filter(f => f.fieldKey === "title").map(f => f.value).sort();
+    expect(titles).toEqual(["Break", "Opening"]);
+  });
+
   it("skips invalid evidence instead of compiling it", async () => {
     const { t, alice, eventId, snapshotId, field } = await fixture();
     const result = await t.mutation(internal.master.ingestExtraction, {
