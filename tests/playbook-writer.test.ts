@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   classifyBlock, FILL, FRESH_CHANGE_MS, isPagTitle, pagModel, pagWriteRequests,
-  parseClockMinutes, PINK, RED, renameCopiedTabRequests,
+  parseClockMinutes, PINK, placeDayBlocks, RED, renameCopiedTabRequests,
 } from "../lib/playbook-writer";
 
 const NOW = 1_800_000_000_000;
@@ -90,6 +90,23 @@ describe("PAG model: days horizontal, time flowing downward", () => {
   });
 });
 
+describe("downward placement never overlaps", () => {
+  it("stacks same-start and second-resolution blocks sequentially", () => {
+    const model = pagModel([
+      field("a", "date", "Oct 21"), field("a", "start_time", "10:00:00 AM"), field("a", "end_time", "10:01:57 AM"), field("a", "title", "Event Opener"),
+      field("b", "date", "Oct 21"), field("b", "start_time", "10:00:00 AM"), field("b", "title", "Day 3 Opening Sequence"),
+      field("c", "date", "Oct 21"), field("c", "start_time", "10:01:57 AM"), field("c", "title", "Morning Engagement"),
+    ], NOW);
+    const minuteToRow = new Map<number, number>();
+    model.rail.forEach((stop, index) => minuteToRow.set(stop.minute, 2 + index));
+    const placements = placeDayBlocks(model.days[0], minuteToRow);
+    for (let i = 1; i < placements.length; i++) {
+      expect(placements[i].startRow).toBeGreaterThanOrEqual(placements[i - 1].endRow);
+    }
+    expect(placements.every(p => p.endRow > p.startRow)).toBe(true);
+  });
+});
+
 describe("PAG write requests", () => {
   const fields = [
     field("a", "date", "October 21"), field("a", "start_time", "9:00 AM"), field("a", "end_time", "10:00 AM"), field("a", "title", "Opening", { conflict: true }),
@@ -97,21 +114,22 @@ describe("PAG write requests", () => {
     field("b", "date", "October 21"), field("b", "start_time", "10:00 AM"), field("b", "title", "Lunch Break"),
   ];
 
-  it("unmerges and clears before writing, then merges blocks over their span", () => {
+  it("unmerges, clears, and sets wide day columns before writing", () => {
     const requests = pagWriteRequests(7, pagModel(fields, NOW));
     expect(requests[0]).toHaveProperty("unmergeCells");
     expect(requests[1].updateCells).toMatchObject({ range: { sheetId: 7 } });
-    expect(requests[2].updateCells).toMatchObject({ start: { sheetId: 7, rowIndex: 0, columnIndex: 0 } });
+    const widths = requests.filter(request => "updateDimensionProperties" in request);
+    expect(widths.length).toBeGreaterThanOrEqual(3); // rail + day + cues columns
+    expect(widths[1]).toMatchObject({ updateDimensionProperties: { properties: { pixelSize: 380 } } });
     const merges = requests.filter(request => "mergeCells" in request);
-    // Date header merge + the Opening block (9:00→10:00 spans one rail row, so
-    // no block merge needed here) — at minimum the date header merges.
-    expect(merges.length).toBeGreaterThanOrEqual(1);
+    expect(merges.length).toBeGreaterThanOrEqual(1); // at minimum the date header
   });
 
   it("writes day bands horizontally and block text with mark colors", () => {
     const requests = pagWriteRequests(7, pagModel(fields, NOW));
     type Cell = { userEnteredValue: { stringValue: string }; textFormatRuns: Array<{ format: { foregroundColor: unknown } }>; userEnteredFormat: { backgroundColor: unknown } };
-    const rows = (requests[2].updateCells as { rows: Array<{ values: Cell[] }> }).rows;
+    const matrixRequest = requests.find(request => (request.updateCells as { start?: unknown } | undefined)?.start) as { updateCells: { rows: Array<{ values: Cell[] }> } };
+    const rows = matrixRequest.updateCells.rows;
     expect(rows[0].values[2].userEnteredValue.stringValue).toBe("October 21");
     expect(rows[1].values[2].userEnteredValue.stringValue).toBe("Day 1");
     expect(rows[1].values[3].userEnteredValue.stringValue).toBe("Day 1 AV Cues");

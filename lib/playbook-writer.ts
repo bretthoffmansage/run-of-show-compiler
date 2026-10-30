@@ -184,19 +184,21 @@ const HEADER_ROWS = 2; // row 0: dates · row 1: Day N / Day N AV Cues bands
 export const CLEAR_ROWS = 300;
 export const CLEAR_COLS = 26;
 
-function cellValue(parts: TextPart[], background?: { red: number; green: number; blue: number }, wrap = true): Record<string, unknown> {
+const FONT = { fontFamily: "Calibri", fontSize: 10 };
+
+function cellValue(parts: TextPart[], background?: { red: number; green: number; blue: number }, wrap = true, fontSize = 10): Record<string, unknown> {
   const text = parts.map(part => part.text).join("");
   const runs: Array<Record<string, unknown>> = [];
   let offset = 0;
   for (const part of parts) {
-    runs.push({ startIndex: offset, format: { foregroundColor: part.color ?? BLACK, bold: part.bold ?? false } });
+    runs.push({ startIndex: offset, format: { ...FONT, fontSize, foregroundColor: part.color ?? BLACK, bold: part.bold ?? false } });
     offset += part.text.length;
   }
   return {
     ...(text ? { userEnteredValue: { stringValue: text } } : {}),
     ...(text && runs.length > 1 ? { textFormatRuns: runs } : {}),
     userEnteredFormat: {
-      textFormat: { foregroundColor: parts[0]?.color ?? BLACK, bold: parts[0]?.bold ?? false },
+      textFormat: { ...FONT, fontSize, foregroundColor: parts[0]?.color ?? BLACK, bold: parts[0]?.bold ?? false },
       ...(background ? { backgroundColor: background } : {}),
       wrapStrategy: wrap ? "WRAP" : "OVERFLOW_CELL",
       verticalAlignment: "TOP",
@@ -226,34 +228,60 @@ function avParts(block: PagBlock): TextPart[] {
   return parts;
 }
 
+interface Placement { block: PagBlock; startRow: number; endRow: number }
+
 /**
- * Full rewrite of the PAG region: unmerge + clear, then the date header row,
- * the Day N / AV Cues band row, the time rail, each day's merged blocks, and
- * untimed entries under the grid.
+ * Non-overlapping downward placement for one day column: blocks sit at their
+ * rail row when free, otherwise directly below the previous block. Spans
+ * never intersect, so merges are always valid.
+ */
+export function placeDayBlocks(day: PagDay, minuteToRow: Map<number, number>): Placement[] {
+  const placements: Placement[] = [];
+  let cursor = HEADER_ROWS;
+  day.blocks.forEach((block, index) => {
+    const startRow = Math.max(minuteToRow.get(block.startMin!) ?? HEADER_ROWS, cursor);
+    const nextStart = day.blocks[index + 1]?.startMin ?? null;
+    const endMinute = block.endMin ?? nextStart;
+    const idealEnd = endMinute !== null && minuteToRow.has(endMinute) ? minuteToRow.get(endMinute)! : startRow + 1;
+    const endRow = Math.max(startRow + 1, idealEnd);
+    placements.push({ block, startRow, endRow });
+    cursor = endRow;
+  });
+  return placements;
+}
+
+/**
+ * Full rewrite of the PAG region: unmerge + clear, set the column geometry
+ * (narrow Start/End rail, wide day and AV-cues columns), then the date
+ * header row, the Day N / AV Cues band row, the time rail, each day's merged
+ * blocks flowing downward, and untimed entries under the grid.
  */
 export function pagWriteRequests(sheetId: number, model: PagModel): Array<Record<string, unknown>> {
   const dayCount = model.days.length;
-  const width = Math.max(2 + dayCount * 2, 3);
+  const width = Math.max(2 + dayCount * 2, 4);
   const minuteToRow = new Map<number, number>();
   model.rail.forEach((stop, index) => minuteToRow.set(stop.minute, HEADER_ROWS + index));
-  const gridRows = HEADER_ROWS + Math.max(model.rail.length, 1);
-  const untimedStart = gridRows + 1;
+  const dayPlacements = model.days.map(day => placeDayBlocks(day, minuteToRow));
+  const gridBottom = Math.max(
+    HEADER_ROWS + model.rail.length,
+    ...dayPlacements.flatMap(placements => placements.map(p => p.endRow)),
+    HEADER_ROWS + 1,
+  );
+  const untimedStart = gridBottom + 1;
   const totalRows = untimedStart + model.untimed.length + 1;
 
-  // Cell matrix, all plain by default.
-  const matrix: Array<Array<Record<string, unknown>>> = Array.from({ length: totalRows }, () => Array.from({ length: width }, () => ({ userEnteredFormat: { wrapStrategy: "WRAP", verticalAlignment: "TOP" } })));
+  const matrix: Array<Array<Record<string, unknown>>> = Array.from({ length: totalRows }, () => Array.from({ length: width }, () => ({ userEnteredFormat: { textFormat: FONT, wrapStrategy: "WRAP", verticalAlignment: "TOP" } })));
   const merges: Array<Record<string, unknown>> = [];
 
   // Header rows.
   matrix[0][0] = cellValue([{ text: "Start", bold: true }]);
   matrix[0][1] = cellValue([{ text: "End", bold: true }]);
-  matrix[1][0] = cellValue([{ text: "Time", bold: true }]);
   model.days.forEach((day, index) => {
     const col = 2 + index * 2;
-    matrix[0][col] = cellValue([{ text: day.date, color: BLACK, bold: true }]);
+    matrix[0][col] = cellValue([{ text: day.date, color: BLACK, bold: true }], undefined, true, 12);
     merges.push({ mergeCells: { range: { sheetId, startRowIndex: 0, endRowIndex: 1, startColumnIndex: col, endColumnIndex: col + 2 }, mergeType: "MERGE_ALL" } });
-    matrix[1][col] = cellValue([{ text: `Day ${index + 1}`, color: WHITE, bold: true }], BAND_TEAL);
-    matrix[1][col + 1] = cellValue([{ text: `Day ${index + 1} AV Cues`, color: WHITE, bold: true }], BAND_TEAL);
+    matrix[1][col] = cellValue([{ text: `Day ${index + 1}`, color: WHITE, bold: true }], BAND_TEAL, true, 12);
+    matrix[1][col + 1] = cellValue([{ text: `Day ${index + 1} AV Cues`, color: WHITE, bold: true }], BAND_TEAL, true, 12);
   });
 
   // Time rail labels, exactly as first written.
@@ -264,19 +292,13 @@ export function pagWriteRequests(sheetId: number, model: PagModel): Array<Record
     matrix[row][1] = cellValue([{ text: next?.label ?? "" }], undefined, false);
   });
 
-  // Blocks: merged over their time span, filled by type; AV cues beside them.
+  // Blocks: merged over their span, filled by type; AV cues beside them.
   model.days.forEach((day, dayIndex) => {
     const col = 2 + dayIndex * 2;
-    day.blocks.forEach((block, blockIndex) => {
-      const startRow = minuteToRow.get(block.startMin!) ?? HEADER_ROWS;
-      const nextStart = day.blocks[blockIndex + 1]?.startMin ?? null;
-      const endMinute = block.endMin ?? nextStart;
-      let endRow = endMinute !== null && minuteToRow.has(endMinute) ? minuteToRow.get(endMinute)! : startRow + 1;
-      if (endRow <= startRow) endRow = startRow + 1;
+    for (const { block, startRow, endRow } of dayPlacements[dayIndex]) {
       matrix[startRow][col] = cellValue(blockParts(block), FILL[block.type]);
       if (endRow - startRow > 1) {
         merges.push({ mergeCells: { range: { sheetId, startRowIndex: startRow, endRowIndex: endRow, startColumnIndex: col, endColumnIndex: col + 1 }, mergeType: "MERGE_ALL" } });
-        // Paint the span so the fill covers the whole block, not just the anchor.
         for (let r = startRow + 1; r < endRow; r++) matrix[r][col] = cellValue([], FILL[block.type]);
       }
       const av = avParts(block);
@@ -287,7 +309,7 @@ export function pagWriteRequests(sheetId: number, model: PagModel): Array<Record
           for (let r = startRow + 1; r < endRow; r++) matrix[r][col + 1] = cellValue([], FILL.internal);
         }
       }
-    });
+    }
   });
 
   // Untimed entries: listed under the grid with a red unknown time.
@@ -300,6 +322,16 @@ export function pagWriteRequests(sheetId: number, model: PagModel): Array<Record
     });
   }
 
+  // Column geometry: narrow time rail, wide day columns, wide-ish cue columns.
+  const widths: Array<Record<string, unknown>> = [
+    { updateDimensionProperties: { range: { sheetId, dimension: "COLUMNS", startIndex: 0, endIndex: 2 }, properties: { pixelSize: 72 }, fields: "pixelSize" } },
+  ];
+  for (let day = 0; day < dayCount; day++) {
+    const col = 2 + day * 2;
+    widths.push({ updateDimensionProperties: { range: { sheetId, dimension: "COLUMNS", startIndex: col, endIndex: col + 1 }, properties: { pixelSize: 380 }, fields: "pixelSize" } });
+    widths.push({ updateDimensionProperties: { range: { sheetId, dimension: "COLUMNS", startIndex: col + 1, endIndex: col + 2 }, properties: { pixelSize: 330 }, fields: "pixelSize" } });
+  }
+
   return [
     { unmergeCells: { range: { sheetId, startRowIndex: 0, endRowIndex: CLEAR_ROWS, startColumnIndex: 0, endColumnIndex: CLEAR_COLS } } },
     {
@@ -308,6 +340,7 @@ export function pagWriteRequests(sheetId: number, model: PagModel): Array<Record
         fields: "userEnteredValue,textFormatRuns,userEnteredFormat(textFormat,backgroundColor,wrapStrategy,verticalAlignment)",
       },
     },
+    ...widths,
     {
       updateCells: {
         start: { sheetId, rowIndex: 0, columnIndex: 0 },

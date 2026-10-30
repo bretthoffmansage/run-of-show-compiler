@@ -61,7 +61,8 @@ Rules:
 - Only report what the document supports. Never invent, guess, or fill gaps. Omit a field rather than fabricate it.
 - Every field needs a snippet: an EXACT, verbatim, contiguous substring copied character-for-character from the document (max 300 characters) that supports the value. Do not paraphrase, re-space, or truncate mid-word in snippets.
 - origin "source_exact" means the value appears verbatim inside the snippet. Normalized or derived values (e.g. "9 AM" reported as 09:00) are "inferred".
-- Normalize when confident: date as YYYY-MM-DD (only when the year is actually determinable), start_time/end_time as 24-hour HH:mm. Keep the original wording via the snippet and set origin "inferred" for normalized values. If a date or time is ambiguous, omit that field and carry the raw text as additional_detail instead.
+- Report date, start_time and end_time EXACTLY as the document writes them, character for character (origin "source_exact"). Never convert time zones, never reformat, never zero-pad, never expand abbreviations. "9:40:00 AM" stays "9:40:00 AM"; "Oct 21" stays "Oct 21".
+- A day or date header (e.g. "Day 3 – October 21", "Thursday, August 14th") governs every row beneath it until the next such header: report its date text as the date field on EACH of those items, with the header line as the snippet.
 - time_zone: report as an IANA zone (e.g. America/New_York) only when the document states or clearly implies one; otherwise omit.
 - Report at most ONE field per key per item (the master keeps a single value per key). Join multiple speakers with commas in one speaker field; merge extra details into one additional_detail field separated by " · ". The snippet for a joined field should cover the span naming them.
 - script: MC copy or spoken-word text, trimmed to the relevant passage. production_note / stage_direction / video / slides / audio: technical cues as written.
