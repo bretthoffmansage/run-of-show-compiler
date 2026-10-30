@@ -340,8 +340,7 @@ export function pagWriteRequests(sheetId: number, model: PagModel): Array<Record
     ...dayPlacements.flatMap(placements => placements.map(p => p.endRow)),
     HEADER_ROWS + 1,
   );
-  const unplacedStart = gridBottom + 1;
-  const totalRows = unplacedStart + model.unplaced.length + 1;
+  const totalRows = gridBottom + 1;
 
   const matrix: Array<Array<Record<string, unknown>>> = Array.from({ length: totalRows }, () => Array.from({ length: width }, () => ({ userEnteredFormat: { textFormat: FONT, wrapStrategy: "WRAP", verticalAlignment: "TOP" } })));
   const merges: Array<Record<string, unknown>> = [];
@@ -387,16 +386,10 @@ export function pagWriteRequests(sheetId: number, model: PagModel): Array<Record
     }
   });
 
-  // Unplaced entries (no day stated, or no parseable time): listed under the
-  // grid in red — never dropped into some other day's column.
-  if (model.unplaced.length) {
-    matrix[unplacedStart - 1][0] = cellValue([{ text: "Unplaced — day or time not stated in sources", bold: true, color: RED }]);
-    model.unplaced.forEach((block, index) => {
-      matrix[unplacedStart + index][2] = cellValue(blockParts(block), FILL[block.type]);
-      const av = avParts(block);
-      if (av.length) matrix[unplacedStart + index][3] = cellValue(av, FILL.internal);
-    });
-  }
+  // Entries with no day or no parseable time are NOT written to the PAG
+  // (Brett, 2026-10-30): the grid is the schedule, and fragments that can't
+  // be placed on it stay off it. They remain visible in the app's compiled
+  // list, and a placed block missing its time still shows the red flag.
 
   // Column geometry: narrow time rail, wide day columns, wide-ish cue columns.
   const widths: Array<Record<string, unknown>> = [
