@@ -52,6 +52,21 @@ describe("PAG model: days horizontal, time flowing downward", () => {
     expect(model.unplaced.map(block => block.title)).toEqual(["Sponsor shoutout"]);
   });
 
+  it("merges day variants into one column and collapses duplicate blocks", () => {
+    // The same day written two ways across extraction chunks must not make
+    // two columns, and the same row captured twice keeps only the richer copy.
+    const model = pagModel([
+      field("v1", "date", "Day 2 – October 20"), field("v1", "day", "Day 2"), field("v1", "start_time", "9:00 AM"), field("v1", "title", "Crew Call"),
+      field("v2", "date", "October 20"), field("v2", "start_time", "9:00 AM"), field("v2", "title", "Crew Call!"), field("v2", "speaker", "DH"),
+      field("v3", "date", "October 20"), field("v3", "start_time", "10:00 AM"), field("v3", "title", "Doors"),
+    ], NOW);
+    expect(model.days).toHaveLength(1);
+    expect(model.days[0].date).toBe("Day 2 – October 20");
+    expect(model.days[0].dayNumber).toBe(2);
+    expect(model.days[0].blocks.map(block => block.title)).toEqual(["Crew Call!", "Doors"]);
+    expect(model.days[0].blocks[0].speaker).toBe("DH");
+  });
+
   it("orders days by the source's own day number and never leaks blocks across days", () => {
     // Day 3's tab appears FIRST in the source (as BMC45 does) — it must still
     // land far right, and a dated-but-dayless block stays in its own date column.

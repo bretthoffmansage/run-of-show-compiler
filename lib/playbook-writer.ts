@@ -112,14 +112,24 @@ export interface PagModel {
 
 const MONTHS = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"];
 
-/** Sortable ordinal for a date string as sources write them; null when unparseable. */
+/**
+ * Sortable calendar ordinal (month*100 + day) for a date string however the
+ * source writes it; null when unparseable. Every parse path lands on the
+ * same scale so "Day 2 – October 20" and "October 20" compare equal and
+ * merge into one column.
+ */
 export function dateOrdinal(text: string): number | null {
-  const parsed = Date.parse(text);
-  if (!Number.isNaN(parsed)) return parsed;
   const monthName = text.toLowerCase().match(/(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\.?\s+(\d{1,2})/);
   if (monthName) return (MONTHS.indexOf(monthName[1]) + 1) * 100 + Number(monthName[2]);
-  const numeric = text.match(/(\d{1,2})[/-](\d{1,2})/);
-  if (numeric) return Number(numeric[1]) * 100 + Number(numeric[2]);
+  const numeric = text.match(/(\d{1,2})[/-](\d{1,2})(?:[/-]\d{2,4})?/);
+  if (numeric && Number(numeric[1]) <= 12) return Number(numeric[1]) * 100 + Number(numeric[2]);
+  const isoLike = text.match(/\d{4}-(\d{2})-(\d{2})/);
+  if (isoLike) return Number(isoLike[1]) * 100 + Number(isoLike[2]);
+  const parsed = Date.parse(text);
+  if (!Number.isNaN(parsed)) {
+    const date = new Date(parsed);
+    return (date.getMonth() + 1) * 100 + date.getDate();
+  }
   return null;
 }
 
@@ -184,14 +194,46 @@ export function pagModel(fields: CompiledField[], now: number): PagModel {
     if (group.dayNumber === null && block.dayNumber !== null) group.dayNumber = block.dayNumber;
     group.blocks.push(block);
   }
+  // One column per real day: groups whose date strings differ only in
+  // wording (chunk variants like "Day 2 – October 20" vs "October 20")
+  // merge when they share a day number or the same calendar date. The
+  // longest date string, which carries the most information, heads the column.
+  const groups = [...dayGroups.values()];
+  const merged: typeof groups = [];
+  for (const group of groups) {
+    const twin = merged.find(candidate =>
+      (candidate.dayNumber !== null && group.dayNumber !== null && candidate.dayNumber === group.dayNumber) ||
+      (dateOrdinal(candidate.date) !== null && dateOrdinal(candidate.date) === dateOrdinal(group.date)));
+    if (twin) {
+      twin.blocks.push(...group.blocks);
+      if (group.date.length > twin.date.length) twin.date = group.date;
+      twin.dayNumber ??= group.dayNumber;
+      twin.appearance = Math.min(twin.appearance, group.appearance);
+    } else {
+      merged.push({ ...group });
+    }
+  }
   const BIG = Number.MAX_SAFE_INTEGER;
-  const days: PagDay[] = [...dayGroups.values()]
+  const days: PagDay[] = merged
     .sort((a, b) =>
       ((a.dayNumber ?? BIG) - (b.dayNumber ?? BIG)) ||
       ((dateOrdinal(a.date) ?? BIG) - (dateOrdinal(b.date) ?? BIG)) ||
       (a.appearance - b.appearance))
     .map(group => ({ date: group.date, dayNumber: group.dayNumber, blocks: group.blocks }));
-  for (const day of days) day.blocks.sort((a, b) => (a.startMin! - b.startMin!) || a.entryKey.localeCompare(b.entryKey));
+  for (const day of days) {
+    day.blocks.sort((a, b) => (a.startMin! - b.startMin!) || a.entryKey.localeCompare(b.entryKey));
+    // Duplicate rows (same start, same title bar punctuation/case) collapse
+    // to the richer block — merged day variants would otherwise double up.
+    const slug = (block: PagBlock) => `${block.startMin}\u0000${block.title.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim()}`;
+    const richness = (block: PagBlock) => [block.timeText, block.speaker].filter(Boolean).length + block.body.length + block.av.length;
+    const byId = new Map<string, PagBlock>();
+    for (const block of day.blocks) {
+      const id = slug(block);
+      const incumbent = byId.get(id);
+      if (!incumbent || richness(block) > richness(incumbent)) byId.set(id, block);
+    }
+    day.blocks = day.blocks.filter(block => byId.get(slug(block)) === block);
+  }
 
   // Shared time rail: every start/end boundary across all days, labeled with
   // the first form a source wrote for that minute.
