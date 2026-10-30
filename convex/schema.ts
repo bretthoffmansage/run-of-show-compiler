@@ -66,6 +66,8 @@ export default defineSchema({
     lastError: v.optional(v.string()),
     /** Link-sharing applied, so the in-app embed and team links work. */
     shared: v.optional(v.boolean()),
+    /** PAG writer version that last wrote the sheet; bumping it regenerates. */
+    writerVersion: v.optional(v.number()),
   }).index("by_event", ["eventId"]),
   googleConnections: defineTable({
     accountEmail: v.string(),

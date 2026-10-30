@@ -3,7 +3,10 @@ import { internalAction, internalMutation, internalQuery, query } from "./_gener
 import { internal } from "./_generated/api";
 import { eventAccess } from "./access";
 import { connectionToken } from "./sync";
-import { isPagTitle, pagPlan, pagWriteRequests, renameCopiedTabRequests } from "../lib/playbook-writer";
+import { isPagTitle, pagModel, pagWriteRequests, renameCopiedTabRequests } from "../lib/playbook-writer";
+
+/** Bump to force every playbook's PAG to regenerate with the new writer. */
+const PAG_WRITER_VERSION = 2;
 
 /**
  * The real deliverable: a Google Sheet playbook in the studio account's
@@ -46,13 +49,15 @@ export const listNeedingSync = internalQuery({
   handler: async (ctx) => {
     const connection = await ctx.db.query("googleConnections").withIndex("by_status", q => q.eq("status", "active")).first();
     const canShare = connection?.scopes.includes("drive.file") === true;
+    const canWrite = connection?.scopes.includes("spreadsheets") === true;
     const events = (await ctx.db.query("events").collect()).filter(event => !event.archived);
     const needing: Array<typeof events[number]["_id"]> = [];
     for (const event of events) {
       const revision = await ctx.db.query("masterRevisions").withIndex("by_event", q => q.eq("eventId", event._id)).order("desc").first();
       if (!revision) continue;
       const playbook = await ctx.db.query("playbooks").withIndex("by_event", q => q.eq("eventId", event._id)).first();
-      if (!playbook || !playbook.spreadsheetId || playbook.lastError || (playbook.lastRevisionNumber ?? -1) < revision.number || (canShare && !playbook.shared)) needing.push(event._id);
+      const staleWriter = canWrite && playbook?.spreadsheetId && (playbook.writerVersion ?? 0) < PAG_WRITER_VERSION;
+      if (!playbook || !playbook.spreadsheetId || playbook.lastError || (playbook.lastRevisionNumber ?? -1) < revision.number || staleWriter || (canShare && !playbook.shared)) needing.push(event._id);
     }
     return needing;
   },
@@ -92,7 +97,7 @@ export const noteResult = internalMutation({
     }
     await ctx.db.patch(playbook._id, error
       ? { lastError: error.slice(0, 500) }
-      : { lastError: undefined, lastWriteAt: Date.now(), ...(revisionNumber !== undefined ? { lastRevisionNumber: revisionNumber } : {}) });
+      : { lastError: undefined, lastWriteAt: Date.now(), writerVersion: PAG_WRITER_VERSION, ...(revisionNumber !== undefined ? { lastRevisionNumber: revisionNumber } : {}) });
   },
 });
 
@@ -143,7 +148,9 @@ export const syncPlaybook = internalAction({
   handler: async (ctx, { eventId }) => {
     const context = await ctx.runQuery(internal.playbooks.compileContext, { eventId });
     if (!context || !context.fields.length) return;
-    const upToDate = context.playbook && context.playbook.spreadsheetId && !context.playbook.lastError && (context.playbook.lastRevisionNumber ?? -1) >= context.revisionNumber;
+    const upToDate = context.playbook && context.playbook.spreadsheetId && !context.playbook.lastError
+      && (context.playbook.lastRevisionNumber ?? -1) >= context.revisionNumber
+      && (context.playbook.writerVersion ?? 0) >= PAG_WRITER_VERSION;
     if (upToDate && context.playbook?.shared) return;
     const token = await connectionToken(ctx);
     if (!token || !token.ok) {
@@ -207,7 +214,7 @@ export const syncPlaybook = internalAction({
         pagSheetId = (sheets.find(sheet => isPagTitle(sheet.properties.title)) ?? sheets[0])?.properties.sheetId;
         if (pagSheetId === undefined) throw new Error("Playbook has no tabs to write to");
       }
-      const requests = pagWriteRequests(pagSheetId, pagPlan(context.fields, Date.now()));
+      const requests = pagWriteRequests(pagSheetId, pagModel(context.fields, Date.now()));
       await sheetsJson(`https://sheets.googleapis.com/v4/spreadsheets/${playbook.spreadsheetId}:batchUpdate`, token.accessToken, { method: "POST", body: { requests } });
       if (canShare && !playbook.shared) {
         await sharePlaybook(token.accessToken, playbook.spreadsheetId);
