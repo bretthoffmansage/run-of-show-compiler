@@ -135,3 +135,16 @@ export async function disconnectGoogle() {
   revalidatePath("/settings");
   redirect("/settings?google=disconnected");
 }
+
+export async function deleteEvent(form: FormData) {
+  const client = await clientOrDeny();
+  const eventId = id<"events">(form, "eventId");
+  let organizationId: string;
+  try {
+    organizationId = await client.mutation(api.events.remove, { eventId });
+  } catch (error) {
+    backToEvent(eventId, cleanError(error));
+  }
+  revalidatePath("/");
+  redirect(`/?organization=${organizationId}`);
+}

@@ -3,7 +3,8 @@ import { notFound, redirect } from "next/navigation";
 import { SignOutButton } from "@clerk/nextjs";
 import { parseConvexId } from "../../../lib/convex-id";
 import { authorizedConvex } from "../../../lib/server-session";
-import { addGoogleSource, addManualSource, editMaster, refreshSource, removeSource, setSourcePaused } from "../../actions";
+import { addGoogleSource, addManualSource, deleteEvent, editMaster, refreshSource, removeSource, setSourcePaused } from "../../actions";
+import { DeleteEventButton } from "../../components/DeleteEventButton";
 import { CompiledEntries, SourceRows } from "../../components/Workspace";
 import { RevisionHistory } from "../../components/RevisionHistory";
 import { AutoRefresh } from "../../components/AutoRefresh";
@@ -45,6 +46,7 @@ export default async function EventSources({ params, searchParams }: {
         </p>
         <div className="page-head-actions">
           {playbookReady && <Link className="primary-link" href={`/events/${eventId}/playbook`}>Open playbook split view →</Link>}
+          <DeleteEventButton eventId={eventId} eventName={event.name} action={deleteEvent} />
           <SignOutButton redirectUrl="/sign-in"><button className="quiet-button">Sign out</button></SignOutButton>
         </div>
       </header>
