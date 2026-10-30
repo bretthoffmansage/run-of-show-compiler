@@ -60,3 +60,16 @@ enrichment. Anything required-but-absent renders as a red unknown, not a guess.
 32. Values changed by a client edit render pink, settling to black after 24h of stability.
 33. Compiler marks apply only to compiler-written values; hand-authored colors are never re-colored (rules 11–14).
 34. Every ported value traces to a verbatim snippet in a source snapshot. Untraceable → not written.
+
+## The canonical pipeline (locked 2026-10-30 — "this is the right layout")
+
+Every playbook reproduces these steps, in order:
+
+1. **Read the source documents live** (2-minute reconciliation; every change is an immutable snapshot).
+2. **Extract verbatim**: every row becomes an item; date, start, end, title, speaker, cues copied character-for-character — the day header's date attached to every row it governs; nothing normalized, nothing invented; every value backed by an exact snippet or discarded.
+3. **Compile = mirror the current documents**: the master rebuilds from each source's latest snapshot only. Removed rows disappear; operator manual edits survive until a source claims the field; disagreements pick the most recently captured source and flag red.
+4. **One column per real day**: day groups merge when they share a day number or calendar date (however the strings are written); duplicate rows (same start + same title) collapse to the richer copy.
+5. **Lay out the PAG**: date headers on top, the source's own day labels on teal bands ("Day 2", "Day 3" — never an invented "Day 1"), Day 1→N left to right, Start/End time rail down columns A/B from the sources' own boundaries, blocks merged over their time span flowing strictly downward, never overlapping, never leaking across days.
+6. **Paint by block type** from the source's own words: yellow sessions · orange sales/re-pitch · blue/cyan breaks, doors, lunch · gray team/internal · salmon registration/tech checks. AV cues (audio/video/slides/stage/notes) sit in the day's paired cues column, gray.
+7. **Mark, never block**: red text = sources disagree or value missing ("No time listed"); pink text = changed by a source edit in the last 24h; marks only on compiler-written values.
+8. **Write into the real Google Sheet** (template copy, Calibri, wide day columns, narrow rail) and re-run the whole chain automatically on every source edit.
