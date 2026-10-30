@@ -102,12 +102,13 @@ export function parseSheetDump(content: string, sourceId: string, revision: stri
           default: details.push({ label, value }); leftovers.push({ label, value, role }); break;
         }
       });
-      // A row with nothing in the content column (e.g. "CREW CALL TIME" typed
-      // in another column) takes its first text cell as the title — moved,
-      // not duplicated.
-      if (title === null) {
-        const promote = leftovers.find(item => item.role === "detail" && !CLOCK.test(item.value));
-        if (promote) {
+      // A label row — one text cell and nothing else besides times, like
+      // "8:30:00 AM … CREW CALL TIME" — uses that text as its title (moved,
+      // not duplicated). A row with several cells keeps every cell under its
+      // own column name; a status like "Chat Open" never becomes a title.
+      if (title === null && leftovers.length === 1 && leftovers[0].role === "detail" && !CLOCK.test(leftovers[0].value)) {
+        const promote = leftovers[0];
+        {
           title = promote.value;
           details.splice(details.findIndex(d => d.label === promote.label && d.value === promote.value), 1);
         }

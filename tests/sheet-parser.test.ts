@@ -62,6 +62,20 @@ describe("deterministic spreadsheet reader", () => {
     expect(love.fields.find(f => f.key === "production_note")?.value).toBe("Audio: Rock Music for Love Form Break");
   });
 
+  it("keeps a two-line cell in its row, and never makes a status the title", () => {
+    const sheet = ["# Day 1 - October 19", HEADER,
+      "10:04:00 AM\t\t10:56:00 AM\t0:52:00\tBMC\tDH\tEntrance: Ppl Back Wall\u2028Loud Entrance Appluse\t\tChat Host Only",
+      "10:00:00 AM\t6:00 AM\t10:03:59 AM\t0:03:59\t\t\tDay 2 Opening Sequence\t\tChat Open",
+    ].join("\n");
+    const { items } = parseSheetDump(sheet, "src", "rev");
+    expect(items).toHaveLength(2);
+    expect(items[0].fields.find(f => f.key === "production_note")?.value).toBe("Visual: Entrance: Ppl Back Wall\u2028Loud Entrance Appluse");
+    expect(items[1].fields.some(f => f.key === "title")).toBe(false);
+    expect(items[1].fields.find(f => f.key === "additional_detail")?.value).toBe("Pacific Start Time: 6:00 AM\nChat Status: Chat Open");
+    const model = pagModel(compiled(sheet), Date.now());
+    expect(model.days[0].blocks.find(b => b.title === "BMC")?.av[0].text).toBe("Visual: Entrance: Ppl Back Wall\nLoud Entrance Appluse");
+  });
+
   it("hands header-less tabs to the model instead of guessing", () => {
     const { items, unparsedText } = parseSheetDump("# Notes\nCall the venue\nConfirm catering", "src", "rev");
     expect(items).toHaveLength(0);

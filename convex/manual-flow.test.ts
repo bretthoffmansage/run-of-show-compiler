@@ -41,11 +41,12 @@ describe("single-operator manual source flow", () => {
       await expect(outsider.query(api.master.listProposals, { eventId })).rejects.toThrow("Access denied");
       await expect(outsider.query(api.master.latest, { eventId })).rejects.toThrow("Access denied");
 
-      // Re-capturing identical manual content re-records claims (audit) but
-      // compiles nothing new: no new revision, playbook untouched.
+      // Re-capturing identical manual content: the new complete read replaces
+      // the old one (superseded proposals are cleared) and compiles nothing
+      // new — no new revision, playbook untouched.
       await operator.mutation(api.snapshots.captureManual, { sourceId, content: "2026-11-03 09:00 Opening\nSession without time" });
       await t.finishAllScheduledFunctions(vi.runAllTimers);
-      expect(await operator.query(api.master.listProposals, { eventId })).toHaveLength(8);
+      expect(await operator.query(api.master.listProposals, { eventId })).toHaveLength(4);
       expect((await operator.query(api.master.latest, { eventId }))?.number).toBe(1);
     } finally {
       vi.useRealTimers();

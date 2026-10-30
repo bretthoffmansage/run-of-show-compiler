@@ -52,7 +52,7 @@ export const snapshotContext = internalQuery({
  * day-header dates): the reaper cron then re-extracts every source's latest
  * snapshot under the new rules and the compile rebuilds from the result.
  */
-export const EXTRACTION_PROMPT_VERSION = 6;
+export const EXTRACTION_PROMPT_VERSION = 7;
 
 export const startRun = internalMutation({
   args: {
@@ -189,7 +189,9 @@ export const runSnapshot = internalAction({
         }
       };
       await Promise.all(Array.from({ length: CONCURRENCY }, () => worker()));
-      const limited = items.slice(0, 600);
+      // Every row the exact spreadsheet reader found is kept; only model
+      // output is capped.
+      const limited = [...items.slice(0, sheet.items.length), ...items.slice(sheet.items.length, sheet.items.length + 600)];
       if (!limited.length && (failedChunks || skippedChunks)) {
         await ctx.runMutation(internal.extraction.finishRun, { runId, status: "failed", error: firstError ?? `ran out of time (${skippedChunks} chunks unprocessed)` });
         return;
@@ -197,7 +199,17 @@ export const runSnapshot = internalAction({
       const partial = failedChunks + skippedChunks;
       // A partial read never replaces a complete one: the compile layers it
       // over the previous complete read instead (see master.ingestExtraction).
-      const ingested: { created: number; skipped: number } = await ctx.runMutation(internal.master.ingestExtraction, { eventId: context.eventId, snapshotId, items: limited, partial: partial > 0 || items.length > limited.length });
+      const isPartial = partial > 0 || items.length > limited.length;
+      if (!isPartial) {
+        // A complete read supersedes every earlier read of this source:
+        // clear them first so the compile reads a small, current table.
+        const keepFrom = Date.now();
+        for (let step = 0; step < 50; step++) {
+          const result: { deleted: number; more: boolean } = await ctx.runMutation(internal.master.pruneSuperseded, { eventId: context.eventId, sourceId: context.sourceId, keepFrom });
+          if (!result.more) break;
+        }
+      }
+      const ingested: { created: number; skipped: number } = await ctx.runMutation(internal.master.ingestExtraction, { eventId: context.eventId, snapshotId, items: limited, partial: isPartial, rulesVersion: EXTRACTION_PROMPT_VERSION });
       await ctx.runMutation(internal.extraction.finishRun, {
         runId, status: "succeeded", itemCount: limited.length, proposalCount: ingested.created,
         ...(partial ? { error: `partial: ${partial} chunks not processed${firstError ? ` (${firstError})` : ""}` } : {}),

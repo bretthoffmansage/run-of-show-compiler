@@ -33,7 +33,7 @@ describe("server-use Google read adapter", () => {
       { body: { tabs: [{ documentTab: { body: { content: [{ paragraph: { elements: [{ textRun: { content: "Opening\n" } }] } }] } } }] } },
     ], calls);
     const result = await readGoogleSource({ url: "https://docs.google.com/document/d/abc123def456/edit", accessToken: "dummy-secret", fetcher });
-    expect(result).toMatchObject({ fileId: "abc123def456", revision: "drive:17", text: "Opening\n", provider: "google_docs" });
+    expect(result).toMatchObject({ fileId: "abc123def456", revision: "drive:17:r2", text: "Opening\n", provider: "google_docs" });
     expect(JSON.stringify(result)).not.toContain("dummy-secret");
     expect(calls).toHaveLength(2);
     expect(calls.every(c => c.authorization === "Bearer dummy-secret")).toBe(true);

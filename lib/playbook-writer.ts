@@ -172,7 +172,11 @@ const SELF_LABELED = /^[^:\n]{1,40}: /;
 
 export function pagModel(fields: CompiledField[], now: number): PagModel {
   const byEntry = new Map<string, CompiledField[]>();
-  for (const field of fields) byEntry.set(field.entryKey, [...(byEntry.get(field.entryKey) ?? []), field]);
+  // A line break inside a source cell is stored as U+2028; show it as one.
+  for (const raw of fields) {
+    const field = { ...raw, value: raw.value.replace(/\u2028/g, "\n") };
+    byEntry.set(field.entryKey, [...(byEntry.get(field.entryKey) ?? []), field]);
+  }
   const blocks: Array<PagBlock & { date: string | null; caption: string | null; dayNumber: number | null }> = [...byEntry].map(([entryKey, entryFields]) => {
     const get = (key: string) => entryFields.find(field => field.fieldKey === key);
     const start = get("start_time")?.value ?? null;

@@ -46,8 +46,9 @@ export const ingestExtraction = internalMutation({
     snapshotId: v.id("sourceSnapshots"),
     items: v.array(v.object({ fields: v.array(extractedField) })),
     partial: v.optional(v.boolean()),
+    rulesVersion: v.optional(v.number()),
   },
-  handler: async (ctx, { eventId, snapshotId, items, partial }) => {
+  handler: async (ctx, { eventId, snapshotId, items, partial, rulesVersion }) => {
     const snapshot = await ctx.db.get(snapshotId);
     const source = snapshot && await ctx.db.get(snapshot.sourceId);
     const event = await ctx.db.get(eventId);
@@ -84,7 +85,10 @@ export const ingestExtraction = internalMutation({
         const proposalId = await ctx.db.insert("masterProposals", {
           eventId, snapshotId, entryKey, fieldKey: field.key, proposedValue: field.value,
           snippet: field.evidence.snippet, origin: field.origin, confidence: field.confidence,
-          state: "pending", createdAt: now, ...(partial ? { partial: true } : {}),
+          // Recorded already decided: there is no approval step, and one
+          // write per field keeps big sheets inside transaction limits.
+          state: "approved", decidedBy: "auto-compiler", decidedAt: now, createdAt: now,
+          ...(partial ? { partial: true } : {}), ...(rulesVersion !== undefined ? { rulesVersion } : {}),
         });
         createdIds.push(proposalId);
         created++;
@@ -119,8 +123,14 @@ export const ingestExtraction = internalMutation({
     const candidates: Doc<"masterProposals">[] = [];
     for (const batches of batchesBySource.values()) {
       const covered = new Set<string>();
+      // Only reads made under the SAME extraction rules as the newest read
+      // may stack: entries from older rules are keyed differently and would
+      // show up as duplicates.
+      const newest = Math.max(...batches.keys());
+      const newestRules = batches.get(newest)![0].rulesVersion ?? 0;
       for (const createdAt of [...batches.keys()].sort((a, b) => b - a)) {
         const batch = batches.get(createdAt)!;
+        if ((batch[0].rulesVersion ?? 0) !== newestRules) continue;
         const fresh = batch.filter(p => !covered.has(`${p.entryKey}\u0000${p.fieldKey}`));
         candidates.push(...fresh);
         for (const p of batch) covered.add(`${p.entryKey}\u0000${p.fieldKey}`);
@@ -173,11 +183,32 @@ export const ingestExtraction = internalMutation({
       // The compiled result flows straight into the Google Sheet playbook.
       await ctx.scheduler.runAfter(0, internal.playbooks.syncPlaybook, { eventId });
     }
-    for (const proposal of createdProposals) {
-      await ctx.db.patch(proposal._id, { state: "approved", decidedBy: "auto-compiler", decidedAt: now });
-      await ctx.db.insert("masterDecisions", { eventId, proposalId: proposal._id, kind: "approve", actor: "auto-compiler", at: now, ...(masterRevisionId ? { masterRevisionId } : {}) });
+    if (masterRevisionId) {
+      await ctx.db.insert("masterDecisions", { eventId, kind: "approve", actor: "auto-compiler", at: now, masterRevisionId });
     }
     return { created, skipped, applied: changed ? newFields.length : 0 };
+  },
+});
+
+/**
+ * Delete a source's proposals older than keepFrom, oldest first, in bounded
+ * steps (the caller loops while `more`). Called before a COMPLETE read is
+ * stored, so the proposal table — read in full on every compile — stays
+ * small. Compiled master revisions keep the history; these rows are working
+ * data.
+ */
+export const pruneSuperseded = internalMutation({
+  args: { eventId: v.id("events"), sourceId: v.id("sources"), keepFrom: v.number() },
+  handler: async (ctx, { eventId, sourceId, keepFrom }): Promise<{ deleted: number; more: boolean }> => {
+    const snapshots = await ctx.db.query("sourceSnapshots").withIndex("by_source", q => q.eq("sourceId", sourceId)).collect();
+    const ofSource = new Set(snapshots.map(s => String(s._id)));
+    const page = await ctx.db.query("masterProposals").withIndex("by_event", q => q.eq("eventId", eventId)).order("asc").take(3000);
+    let deleted = 0;
+    for (const p of page) {
+      if (deleted >= 2000) break;
+      if (ofSource.has(String(p.snapshotId)) && p.createdAt < keepFrom) { await ctx.db.delete(p._id); deleted++; }
+    }
+    return { deleted, more: deleted >= 2000 };
   },
 });
 

@@ -13,6 +13,14 @@ export class GoogleReadError extends Error {
 
 export type Fetcher = (input: string, init?: RequestInit) => Promise<Response>;
 const MAX_RESPONSE_BYTES = 8 * 1024 * 1024;
+/**
+ * A line break INSIDE a spreadsheet cell is stored as U+2028 so every
+ * physical line of the dump is exactly one sheet row (a two-line cell must
+ * not split its row in two). Writers turn it back into a line break.
+ */
+export const CELL_NEWLINE = "\u2028";
+/** Bump when the stored text format changes: forces a fresh read of every source. */
+const READER_FORMAT = "r2";
 const MAX_TEXT_BYTES = 256 * 1024;
 
 const NATIVE_MIME: Record<string, GoogleProvider> = {
@@ -127,7 +135,7 @@ export async function readGoogleMetadata(args: { url: string; accessToken: strin
   const provider: DetectedProvider | undefined = NATIVE_MIME[mime];
   if (!provider) throw new GoogleReadError(OFFICE_MIME.has(mime) ? "office_file" : "invalid_source");
   if (typeof meta.version !== "string" || !meta.version) throw new GoogleReadError("parse_failed");
-  return { fileId, provider, revision: `drive:${meta.version}`, modifiedTime: typeof meta.modifiedTime === "string" ? meta.modifiedTime : null };
+  return { fileId, provider, revision: `drive:${meta.version}:${READER_FORMAT}`, modifiedTime: typeof meta.modifiedTime === "string" ? meta.modifiedTime : null };
 }
 
 export async function readGoogleSource(args: { url: string; accessToken: string; fetcher: Fetcher }) {
@@ -150,7 +158,7 @@ export async function readGoogleSource(args: { url: string; accessToken: string;
     text = raw.valueRanges.map((range, index) => {
       const values = (range as { values?: unknown }).values;
       if (values !== undefined && !Array.isArray(values)) throw new GoogleReadError("parse_failed");
-      return [`# ${titles[index] ?? "Sheet"}`, ...(values ?? []).map(row => Array.isArray(row) ? row.map(String).join("\t") : "")].join("\n");
+      return [`# ${titles[index] ?? "Sheet"}`, ...(values ?? []).map(row => Array.isArray(row) ? row.map(cell => String(cell).replace(/\r?\n/g, CELL_NEWLINE)).join("\t") : "")].join("\n");
     }).join("\n\n");
   }
   if (new TextEncoder().encode(text).length > MAX_TEXT_BYTES) throw new GoogleReadError("too_large");

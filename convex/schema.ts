@@ -108,6 +108,8 @@ export default defineSchema({
     createdAt: v.number(),
     /** From an extraction run that didn't read every chunk. */
     partial: v.optional(v.boolean()),
+    /** Extraction rules version that produced this proposal. */
+    rulesVersion: v.optional(v.number()),
     decidedBy: v.optional(v.string()),
     decidedAt: v.optional(v.number()),
   }).index("by_event", ["eventId"]).index("by_snapshot", ["snapshotId"]),

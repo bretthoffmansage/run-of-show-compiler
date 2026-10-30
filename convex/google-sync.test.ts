@@ -63,7 +63,7 @@ describe("google source sync pipeline", () => {
       // Source creation schedules the first sync; extraction follows it.
       await t.finishAllScheduledFunctions(vi.runAllTimers);
       const sources = await operator.query(api.sources.list, { eventId });
-      expect(sources[0]).toMatchObject({ state: "connected", lastRevision: "drive:4" });
+      expect(sources[0]).toMatchObject({ state: "connected", lastRevision: "drive:4:r2" });
       expect(sources[0].lastSyncAt).toBeTypeOf("number");
       const snapshot = await operator.query(api.snapshots.latest, { sourceId });
       expect(snapshot?.content).toContain("Keynote");
