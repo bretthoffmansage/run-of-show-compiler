@@ -89,10 +89,16 @@ function sourceStatus(source: WorkspaceSource): { label: string; tone: "ok" | "w
     case "connected": return stale ? { label: "Live · possibly stale", tone: "warn" } : { label: "Live · synced", tone: "ok" };
     case "not_connected": return source.lastError === "no_google_connection"
       ? { label: "Waiting for Google connection (Settings)", tone: "warn" }
-      : { label: "Connecting…", tone: "quiet" };
+      : source.lastError === "no_airtable_connection"
+        ? { label: "Waiting for an Airtable token (Settings)", tone: "warn" }
+        : { label: "Connecting…", tone: "quiet" };
     case "paused": return { label: "Paused", tone: "quiet" };
-    case "needs_reauthorization": return { label: "Google connection expired — reconnect it in Settings", tone: "bad" };
-    case "access_removed": return { label: "No access — share this file with the studio Google account", tone: "bad" };
+    case "needs_reauthorization": return source.provider === "airtable"
+      ? { label: "Airtable rejected the token — replace it in Settings", tone: "bad" }
+      : { label: "Google connection expired — reconnect it in Settings", tone: "bad" };
+    case "access_removed": return source.provider === "airtable"
+      ? { label: "No access — give the Airtable token access to this base (airtable.com/create/tokens)", tone: "bad" }
+      : { label: "No access — share this file with the studio Google account", tone: "bad" };
     case "error": switch (source.lastError) {
       case "office_file": return { label: "Excel/Word file — in Google, use File → Save as Google Sheets (or Docs), then re-add that link", tone: "bad" };
       case "too_large": return { label: "File too large to sync", tone: "bad" };

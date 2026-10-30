@@ -54,7 +54,10 @@ export function markFor(field: CompiledField | undefined, now: number): Mark {
 /** Parse a clock string leniently for ORDERING only; display stays as written. */
 export function parseClockMinutes(text: string | null): number | null {
   if (!text) return null;
-  const match = text.trim().match(/^(\d{1,2})(?::(\d{2}))?(?::(\d{2}))?\s*(am|pm|a\.m\.|p\.m\.)?$/i);
+  // A bare clock ("9:40:00 AM"), or the clock inside a date-time value as
+  // Airtable and spreadsheets render them ("10/21/2026 9:00am").
+  const match = text.trim().match(/^(\d{1,2})(?::(\d{2}))?(?::(\d{2}))?\s*(am|pm|a\.m\.|p\.m\.)?$/i)
+    ?? text.match(/(?:^|[\sT])(\d{1,2}):(\d{2})(?::(\d{2}))?\s*(am|pm|a\.m\.|p\.m\.)?\s*$/i);
   if (!match) return null;
   let hours = Number(match[1]);
   const minutes = Number(match[2] ?? 0);

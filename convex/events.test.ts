@@ -23,6 +23,6 @@ describe("deleting an event", () => {
     expect(await alice.mutation(api.events.remove, { eventId })).toBe(organizationId);
     expect(await alice.query(api.events.list, { organizationId })).toHaveLength(0);
     await expect(alice.query(api.events.get, { eventId })).rejects.toThrow("Access denied");
-    expect((await t.run(ctx => ctx.db.get(sourceId)))?.archived).toBe(true);
+    expect((await t.run(ctx => ctx.db.get(sourceId)) as { archived?: boolean } | null)?.archived).toBe(true);
   });
 });

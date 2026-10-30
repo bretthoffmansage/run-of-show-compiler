@@ -148,3 +148,23 @@ export async function deleteEvent(form: FormData) {
   revalidatePath("/");
   redirect(`/?organization=${organizationId}`);
 }
+
+export async function connectAirtable(form: FormData) {
+  const client = await clientOrDeny();
+  let notice: string;
+  try {
+    const result = await client.action(api.airtable.connect, { token: field(form, "token") });
+    notice = `Airtable connected${result.accountEmail ? ` (${result.accountEmail})` : ""}`;
+  } catch (error) {
+    notice = cleanError(error);
+  }
+  revalidatePath("/settings");
+  redirect(`/settings?airtable=${encodeURIComponent(notice)}`);
+}
+
+export async function disconnectAirtable() {
+  const client = await clientOrDeny();
+  await client.mutation(api.airtable.disconnect, {});
+  revalidatePath("/settings");
+  redirect(`/settings?airtable=${encodeURIComponent("Airtable disconnected; the token was deleted")}`);
+}

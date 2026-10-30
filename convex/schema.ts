@@ -34,7 +34,7 @@ export default defineSchema({
     organizationId: v.id("organizations"),
     eventId: v.id("events"),
     name: v.string(),
-    provider: v.union(v.literal("google_docs"), v.literal("google_sheets"), v.literal("manual")),
+    provider: v.union(v.literal("google_docs"), v.literal("google_sheets"), v.literal("airtable"), v.literal("manual")),
     url: v.string(),
     state: sourceState,
     archived: v.optional(v.boolean()),
@@ -69,6 +69,14 @@ export default defineSchema({
     /** PAG writer version that last wrote the sheet; bumping it regenerates. */
     writerVersion: v.optional(v.number()),
   }).index("by_event", ["eventId"]),
+  airtableConnections: defineTable({
+    accountEmail: v.optional(v.string()),
+    encryptedToken: v.string(),
+    scopes: v.string(),
+    connectedBy: v.string(),
+    connectedAt: v.number(),
+    lastError: v.optional(v.string()),
+  }),
   googleConnections: defineTable({
     accountEmail: v.string(),
     encryptedRefreshToken: v.string(),

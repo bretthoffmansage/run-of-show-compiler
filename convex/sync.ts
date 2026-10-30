@@ -3,6 +3,8 @@ import { action, internalAction, internalMutation, internalQuery, type ActionCtx
 import { internal } from "./_generated/api";
 import { eventAccess } from "./access";
 import { mintAccessToken } from "./google";
+import { openAirtableToken } from "./airtable";
+import { AirtableReadError, readAirtableSource } from "../lib/airtable-reader";
 import { GoogleReadError, readGoogleMetadata, readGoogleSource } from "../lib/google-reader";
 import { sourceState } from "./schema";
 import type { Doc } from "./_generated/dataModel";
@@ -83,8 +85,47 @@ export const correctProvider = internalMutation({
   },
 });
 
+const AIRTABLE_ERROR_STATE: Record<AirtableReadError["code"], Doc<"sources">["state"] | undefined> = {
+  needs_token: "needs_reauthorization",
+  no_access: "access_removed",
+  invalid_source: "error",
+  parse_failed: "error",
+  too_large: "error",
+  rate_limited: undefined,
+  unavailable: undefined,
+};
+
+/**
+ * Airtable has no change probe: every poll reads the records, and the
+ * revision is a hash of the rendered data, so an unchanged table captures
+ * nothing new and any client edit does.
+ */
+async function syncAirtable(ctx: ActionCtx, source: Doc<"sources">): Promise<void> {
+  const row: Doc<"airtableConnections"> | null = await ctx.runQuery(internal.airtable.activeConnection, {});
+  if (!row) {
+    await ctx.runMutation(internal.sync.markSourceError, { sourceId: source._id, state: "not_connected", error: "no_airtable_connection" });
+    return;
+  }
+  try {
+    const read = await readAirtableSource({ url: source.url, token: await openAirtableToken(row), fetcher: fetch });
+    if (read.revision === source.lastRevision) {
+      await ctx.runMutation(internal.sync.markChecked, { sourceId: source._id });
+      return;
+    }
+    const captured = await ctx.runMutation(internal.snapshots.capture, { sourceId: source._id, revision: read.revision, content: read.text });
+    await ctx.runMutation(internal.sync.markSynced, { sourceId: source._id, revision: read.revision });
+    if (captured.changed) await ctx.scheduler.runAfter(0, internal.extraction.runSnapshot, { snapshotId: captured.snapshotId });
+    await ctx.runMutation(internal.airtable.noteResult, {});
+  } catch (error) {
+    const code = error instanceof AirtableReadError ? error.code : "sync_failed";
+    await ctx.runMutation(internal.sync.markSourceError, { sourceId: source._id, state: error instanceof AirtableReadError ? AIRTABLE_ERROR_STATE[error.code] : "error", error: `airtable_${code}` });
+    if (code === "needs_token") await ctx.runMutation(internal.airtable.noteResult, { error: "Airtable rejected the token" });
+  }
+}
+
 async function syncSource(ctx: ActionCtx, source: Doc<"sources">, accessToken: string, force = false): Promise<void> {
   if (source.provider === "manual") return;
+  if (source.provider === "airtable") return syncAirtable(ctx, source);
   try {
     if (!force && source.lastRevision) {
       const meta = await readGoogleMetadata({ url: source.url, accessToken, fetcher: fetch });
@@ -124,7 +165,9 @@ export async function connectionToken(ctx: ActionCtx): Promise<TokenResult | nul
 export const pollAllSources = internalAction({
   args: {},
   handler: async (ctx) => {
-    const sources = await ctx.runQuery(internal.sync.listPollable, {});
+    const all: Doc<"sources">[] = await ctx.runQuery(internal.sync.listPollable, {});
+    for (const source of all.filter(s => s.provider === "airtable")) await syncAirtable(ctx, source);
+    const sources = all.filter(s => s.provider !== "airtable");
     if (!sources.length) return;
     const token = await connectionToken(ctx);
     if (!token) return;
@@ -143,9 +186,10 @@ export const pollAllSources = internalAction({
 /** First sync for a just-created source, scheduled by sources.create. */
 export const pollOne = internalAction({
   args: { sourceId: v.id("sources") },
-  handler: async (ctx, { sourceId }) => {
-    const source = await ctx.runQuery(internal.sync.getSource, { sourceId });
+  handler: async (ctx, { sourceId }): Promise<void> => {
+    const source: Doc<"sources"> | null = await ctx.runQuery(internal.sync.getSource, { sourceId });
     if (!source || source.archived || source.provider === "manual" || source.state === "paused") return;
+    if (source.provider === "airtable") return syncAirtable(ctx, source);
     const token = await connectionToken(ctx);
     if (!token) {
       await ctx.runMutation(internal.sync.markSourceError, { sourceId, state: "not_connected", error: "no_google_connection" });
@@ -162,10 +206,11 @@ export const pollOne = internalAction({
 /** Operator-triggered re-pull that bypasses the unchanged-revision short-circuit. */
 export const refreshSource = action({
   args: { sourceId: v.id("sources") },
-  handler: async (ctx, { sourceId }) => {
-    const source = await ctx.runQuery(internal.sync.sourceForOperator, { sourceId });
+  handler: async (ctx, { sourceId }): Promise<void> => {
+    const source: Doc<"sources"> = await ctx.runQuery(internal.sync.sourceForOperator, { sourceId });
     if (source.provider === "manual") throw new Error("Manual sources have no live connection");
     if (source.state === "paused") throw new Error("Resume the source before refreshing");
+    if (source.provider === "airtable") return syncAirtable(ctx, source);
     const token = await connectionToken(ctx);
     if (!token) throw new Error("Connect the studio Google account in Settings first");
     if (!token.ok) throw new Error(token.reauth ? "Google connection needs reauthorization; reconnect it in Settings" : "Google is unreachable; try again shortly");

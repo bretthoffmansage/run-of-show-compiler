@@ -3,18 +3,21 @@ import { SignOutButton } from "@clerk/nextjs";
 import { api } from "../../convex/_generated/api";
 import { authorizedConvex, signedInEmail } from "../../lib/server-session";
 import { AppShell } from "../components/AppShell";
-import { disconnectGoogle } from "../actions";
+import { connectAirtable, disconnectAirtable, disconnectGoogle } from "../actions";
 
 function timestamp(value: number | null | undefined): string {
   return value ? new Date(value).toISOString().replace("T", " ").slice(0, 16) + " UTC" : "—";
 }
 
-export default async function SettingsPage({ searchParams }: { searchParams: Promise<{ google?: string }> }) {
+export default async function SettingsPage({ searchParams }: { searchParams: Promise<{ google?: string; airtable?: string }> }) {
   const client = await authorizedConvex();
   if (!client) redirect("/sign-in");
-  const notice = (await searchParams).google;
-  const [google, engine, email] = await Promise.all([
+  const params = await searchParams;
+  const notice = params.google;
+  const airtableNotice = params.airtable;
+  const [google, airtable, engine, email] = await Promise.all([
     client.query(api.google.status, {}),
+    client.query(api.airtable.status, {}),
     client.query(api.extraction.engine, {}),
     signedInEmail(),
   ]);
@@ -22,6 +25,7 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
   return <AppShell activeNav="settings"><main className="dashboard">
     <header className="dashboard-header"><div><p className="eyebrow">SAGE · OPERATIONS</p><h1>Settings</h1></div><SignOutButton redirectUrl="/sign-in"><button className="quiet-button">Sign out</button></SignOutButton></header>
     {connectedNotice && <p className="notice-banner" role="status">{connectedNotice}</p>}
+    {airtableNotice && <p className="notice-banner" role="status">{airtableNotice}</p>}
     <div className="dashboard-grid">
       <section className="dashboard-panel" aria-labelledby="google-title">
         <p className="eyebrow">01 / GOOGLE</p><h2 id="google-title">Studio document access</h2>
@@ -43,8 +47,26 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
           <a className="export-link" href="/api/google/oauth/start">Connect studio Google account →</a>
         </>}
       </section>
+      <section className="dashboard-panel" aria-labelledby="airtable-title">
+        <p className="eyebrow">02 / AIRTABLE</p><h2 id="airtable-title">Airtable access</h2>
+        <p className="muted">Airtable sources are read live (re-checked every 2 minutes) with one personal access token. Create it at airtable.com/create/tokens with the scopes <strong>data.records:read</strong> and <strong>schema.bases:read</strong>, and give it access to the client bases you&apos;ll link. It&apos;s stored encrypted server-side and never shown again.</p>
+        {airtable.connected ? <>
+          <dl className="settings-facts">
+            <div><dt>Token owner</dt><dd>{airtable.accountEmail ?? "—"}</dd></div>
+            <div><dt>Connected</dt><dd>{timestamp(airtable.connectedAt)}</dd></div>
+            <div><dt>Scopes</dt><dd>{airtable.scopes || "—"}</dd></div>
+            {airtable.lastError && <div><dt>Last error</dt><dd>{airtable.lastError}</dd></div>}
+          </dl>
+          <form action={disconnectAirtable}><button type="submit" className="quiet-button danger">Disconnect and delete token</button></form>
+        </> : null}
+        <form action={connectAirtable} className="stacked-form">
+          <label htmlFor="airtable-token">{airtable.connected ? "Replace token" : "Personal access token"}</label>
+          <input id="airtable-token" name="token" type="password" autoComplete="off" required placeholder="pat…" />
+          <button type="submit">{airtable.connected ? "Replace token" : "Connect Airtable"}</button>
+        </form>
+      </section>
       <section className="dashboard-panel" aria-labelledby="ai-title">
-        <p className="eyebrow">02 / EXTRACTION</p><h2 id="ai-title">AI extraction</h2>
+        <p className="eyebrow">03 / EXTRACTION</p><h2 id="ai-title">AI extraction</h2>
         {engine.aiConfigured
           ? <p className="muted">Claude extraction is active (model: {engine.model}). Every extracted field keeps a verbatim source snippet and must be approved before it enters the master.</p>
           : <p className="muted">No AI_GATEWAY_API_KEY (or ANTHROPIC_API_KEY) is configured on the Convex deployment, so the deterministic line parser is in use. Set a key to enable AI extraction for arbitrary document formats.</p>}

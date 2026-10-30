@@ -60,8 +60,11 @@ export function parseSheetDump(content: string, sourceId: string, revision: stri
   const exact = (key: Field["key"], value: string): Field => ({ key, value, origin: "source_exact", confidence: 1, evidence: evidence(value) });
 
   for (const tab of tabs) {
-    const rows = tab.lines.map(line => line.split("\t"));
-    const headerIndex = rows.findIndex(isHeaderRow);
+    // A "## " line is a DECLARED header row (Airtable field names); otherwise
+    // the header row is recognized by its column words.
+    const declared = tab.lines.findIndex(line => line.startsWith("## "));
+    const rows = tab.lines.map(line => (line.startsWith("## ") ? line.slice(3) : line).split("\t"));
+    const headerIndex = declared >= 0 ? declared : rows.findIndex(isHeaderRow);
     if (headerIndex < 0) {
       unparsed.push([`# ${tab.title}`, ...tab.lines].join("\n"));
       continue;
@@ -80,7 +83,7 @@ export function parseSheetDump(content: string, sourceId: string, revision: stri
     for (let r = headerIndex + 1; r < rows.length; r++) {
       const cells = rows[r];
       if (!cells.some(cell => cell.trim())) continue;
-      if (isHeaderRow(cells)) { headers = cells.map(cell => cell.trim()); assign(); continue; }
+      if (declared < 0 && isHeaderRow(cells)) { headers = cells.map(cell => cell.trim()); assign(); continue; }
       const fields: Field[] = [exact("date", tab.title)];
       if (caption) fields.push({ key: "day", value: caption, origin: "source_exact", confidence: 1, evidence: evidence(caption.split(" · ")[0]) });
       const av: Array<{ label: string; value: string }> = [];

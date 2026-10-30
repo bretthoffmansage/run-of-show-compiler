@@ -3,6 +3,7 @@ import { v } from "convex/values";
 import { internal } from "./_generated/api";
 import { eventAccess } from "./access";
 import { parseGoogleSourceUrl } from "../lib/google-url";
+import { parseAirtableUrl } from "../lib/airtable-reader";
 
 const provider = v.union(v.literal("google_docs"), v.literal("google_sheets"));
 
@@ -12,11 +13,13 @@ export const create = mutation({
     const { event, userId } = await eventAccess(ctx, args.eventId, "edit");
     const name = args.name.trim();
     if (!name || name.length > 120) throw new Error("Invalid source name");
-    const parsed = parseGoogleSourceUrl(args.url);
-    if (!parsed) throw new Error("That link doesn't look like a Google Doc, Sheet, or Drive file link");
+    const airtable = parseAirtableUrl(args.url);
+    const parsed = airtable ? null : parseGoogleSourceUrl(args.url);
+    if (!airtable && !parsed) throw new Error("That link doesn't look like a Google Doc, Sheet, Drive file, or Airtable table link (airtable.com/app…/tbl…)");
     // Drive links don't reveal the file kind; the first sync detects and corrects it.
-    const resolvedProvider = parsed.provider ?? args.provider ?? "google_sheets";
-    const sourceId = await ctx.db.insert("sources", { organizationId: event.organizationId, eventId: args.eventId, name, provider: resolvedProvider, url: parsed.canonicalUrl, state: "not_connected", archived: false, createdBy: userId });
+    const resolvedProvider = airtable ? "airtable" as const : parsed!.provider ?? args.provider ?? "google_sheets";
+    const url = airtable ? airtable.canonicalUrl : parsed!.canonicalUrl;
+    const sourceId = await ctx.db.insert("sources", { organizationId: event.organizationId, eventId: args.eventId, name, provider: resolvedProvider, url, state: "not_connected", archived: false, createdBy: userId });
     await ctx.scheduler.runAfter(0, internal.sync.pollOne, { sourceId });
     return sourceId;
   },

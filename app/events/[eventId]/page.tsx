@@ -29,7 +29,7 @@ export default async function EventSources({ params, searchParams }: {
   const { event, organization, sources, revision, history, runs, googleStatus, playbook, workspaceSources, entries, rail, proposals } = data;
   const latestRun = runs[0];
   const runningRun = runs.find(run => run.status === "running");
-  const liveSources = sources.filter(source => source.provider !== "manual");
+  const liveSources = sources.filter(source => source.provider !== "manual" && source.provider !== "airtable");
   const playbookReady = Boolean(playbook?.url);
   return <AppShell organizationName={organization.name} organizationId={organization._id} eventName={event.name} eventId={eventId}
     organizations={rail.organizations} events={rail.events} playbookReady={playbookReady} activePage="sources">
@@ -65,10 +65,10 @@ export default async function EventSources({ params, searchParams }: {
         <section className="dashboard-panel"><p className="eyebrow">INTAKE</p><h2>Connect sources</h2>
           <div className="intake-grid">
             <form action={addGoogleSource} className="stacked-form">
-              <p className="muted">Live Google Doc or Sheet. The studio account must have at least view access to the file.</p>
+              <p className="muted">Live Google Doc, Google Sheet, or Airtable table. Google files must be shared with the studio account; Airtable bases must be included in the Airtable token (Settings).</p>
               <input type="hidden" name="eventId" value={eventId} />
               <label htmlFor="google-name">Source name</label><input id="google-name" name="name" maxLength={120} required placeholder="Client schedule" />
-              <label htmlFor="google-url">docs.google.com link</label><input id="google-url" name="url" type="url" required placeholder="https://docs.google.com/spreadsheets/d/…" />
+              <label htmlFor="google-url">Google or Airtable link</label><input id="google-url" name="url" type="url" required placeholder="https://docs.google.com/spreadsheets/d/… or https://airtable.com/app…/tbl…" />
               <button type="submit">Connect live source</button>
             </form>
             <form action={addManualSource} className="stacked-form">

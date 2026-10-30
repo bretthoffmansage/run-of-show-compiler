@@ -9,6 +9,7 @@
  */
 
 import type * as access from "../access.js";
+import type * as airtable from "../airtable.js";
 import type * as crons from "../crons.js";
 import type * as events from "../events.js";
 import type * as extraction from "../extraction.js";
@@ -28,6 +29,7 @@ import type {
 
 declare const fullApi: ApiFromModules<{
   access: typeof access;
+  airtable: typeof airtable;
   crons: typeof crons;
   events: typeof events;
   extraction: typeof extraction;
