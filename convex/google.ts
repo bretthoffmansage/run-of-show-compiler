@@ -80,6 +80,7 @@ export const completeOAuth = action({
     const exchanged = await exchangeAuthorizationCode({ code, redirectUri, clientId, clientSecret, fetcher: fetch });
     if (!exchanged.scopes.includes("drive.readonly")) throw new Error("Google grant is missing read-only Drive access; connect again and leave every permission checked");
     if (!exchanged.scopes.includes("spreadsheets")) throw new Error("Google grant is missing spreadsheet access (needed to create playbooks); connect again and leave every permission checked");
+    if (!exchanged.scopes.includes("drive.file")) throw new Error("Google grant is missing per-file Drive access (needed to share the playbooks the app creates); connect again and leave every permission checked");
     if (!exchanged.accountEmail) throw new Error("Google did not identify the connected account");
     const expected = process.env.GOOGLE_EXPECTED_ACCOUNT?.trim().toLowerCase();
     if (expected && exchanged.accountEmail !== expected) {

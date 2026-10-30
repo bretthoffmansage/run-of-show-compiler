@@ -5,10 +5,11 @@
  */
 /**
  * drive.readonly reads the client source documents; spreadsheets lets the app
- * create and write the playbook Google Sheets it generates. No broader Drive
+ * create and write the playbook Google Sheets it generates; drive.file lets
+ * it manage sharing for those same generated files only. No broader Drive
  * write access is requested.
  */
-export const GOOGLE_OAUTH_SCOPES = "openid email https://www.googleapis.com/auth/drive.readonly https://www.googleapis.com/auth/spreadsheets";
+export const GOOGLE_OAUTH_SCOPES = "openid email https://www.googleapis.com/auth/drive.readonly https://www.googleapis.com/auth/spreadsheets https://www.googleapis.com/auth/drive.file";
 const AUTH_ENDPOINT = "https://accounts.google.com/o/oauth2/v2/auth";
 const TOKEN_ENDPOINT = "https://oauth2.googleapis.com/token";
 const REVOKE_ENDPOINT = "https://oauth2.googleapis.com/revoke";

@@ -25,7 +25,7 @@ export const forEvent = query({
     await eventAccess(ctx, eventId, "read");
     const playbook = await ctx.db.query("playbooks").withIndex("by_event", q => q.eq("eventId", eventId)).first();
     if (!playbook) return null;
-    return { url: playbook.url, lastWriteAt: playbook.lastWriteAt ?? null, lastError: playbook.lastError ?? null };
+    return { url: playbook.url, lastWriteAt: playbook.lastWriteAt ?? null, lastError: playbook.lastError ?? null, shared: playbook.shared === true };
   },
 });
 
@@ -40,19 +40,29 @@ export const compileContext = internalQuery({
   },
 });
 
-/** Every compiled event whose playbook is missing, failed, or behind the master. */
+/** Every compiled event whose playbook is missing, failed, behind the master, or still unshared. */
 export const listNeedingSync = internalQuery({
   args: {},
   handler: async (ctx) => {
+    const connection = await ctx.db.query("googleConnections").withIndex("by_status", q => q.eq("status", "active")).first();
+    const canShare = connection?.scopes.includes("drive.file") === true;
     const events = (await ctx.db.query("events").collect()).filter(event => !event.archived);
     const needing: Array<typeof events[number]["_id"]> = [];
     for (const event of events) {
       const revision = await ctx.db.query("masterRevisions").withIndex("by_event", q => q.eq("eventId", event._id)).order("desc").first();
       if (!revision) continue;
       const playbook = await ctx.db.query("playbooks").withIndex("by_event", q => q.eq("eventId", event._id)).first();
-      if (!playbook || !playbook.spreadsheetId || playbook.lastError || (playbook.lastRevisionNumber ?? -1) < revision.number) needing.push(event._id);
+      if (!playbook || !playbook.spreadsheetId || playbook.lastError || (playbook.lastRevisionNumber ?? -1) < revision.number || (canShare && !playbook.shared)) needing.push(event._id);
     }
     return needing;
+  },
+});
+
+export const markShared = internalMutation({
+  args: { eventId: v.id("events") },
+  handler: async (ctx, { eventId }) => {
+    const playbook = await ctx.db.query("playbooks").withIndex("by_event", q => q.eq("eventId", eventId)).first();
+    if (playbook) await ctx.db.patch(playbook._id, { shared: true });
   },
 });
 
@@ -85,6 +95,20 @@ export const noteResult = internalMutation({
       : { lastError: undefined, lastWriteAt: Date.now(), ...(revisionNumber !== undefined ? { lastRevisionNumber: revisionNumber } : {}) });
   },
 });
+
+/**
+ * View-only link-sharing, matching how the SAGE template itself is shared:
+ * it is the minimum that lets the in-app embed render for every operator
+ * and the sheet open for the crew. Edit access stays with the studio
+ * account, which can grant it per-person in Sheets. Only files the app
+ * itself created are reachable under the drive.file scope.
+ */
+async function sharePlaybook(token: string, spreadsheetId: string): Promise<void> {
+  await sheetsJson(`https://www.googleapis.com/drive/v3/files/${spreadsheetId}/permissions?supportsAllDrives=true`, token, {
+    method: "POST",
+    body: { type: "anyone", role: "reader" },
+  });
+}
 
 async function sheetsJson(url: string, token: string, init?: { method?: string; body?: unknown }): Promise<Record<string, unknown>> {
   const response = await fetch(url, {
@@ -120,7 +144,7 @@ export const syncPlaybook = internalAction({
     const context = await ctx.runQuery(internal.playbooks.compileContext, { eventId });
     if (!context || !context.fields.length) return;
     const upToDate = context.playbook && context.playbook.spreadsheetId && !context.playbook.lastError && (context.playbook.lastRevisionNumber ?? -1) >= context.revisionNumber;
-    if (upToDate) return;
+    if (upToDate && context.playbook?.shared) return;
     const token = await connectionToken(ctx);
     if (!token || !token.ok) {
       await ctx.runMutation(internal.playbooks.noteResult, { eventId, error: token && !token.ok ? "google_connection_failed" : "no_google_connection" });
@@ -131,8 +155,17 @@ export const syncPlaybook = internalAction({
       await ctx.runMutation(internal.playbooks.noteResult, { eventId, error: "needs_reconnect_for_sheets" });
       return;
     }
+    const canShare = token.scopes.includes("drive.file");
     try {
       let playbook = context.playbook && context.playbook.spreadsheetId ? context.playbook : null;
+      if (upToDate && playbook) {
+        // Only the sharing step is pending for this sheet.
+        if (canShare && !playbook.shared) {
+          await sharePlaybook(token.accessToken, playbook.spreadsheetId);
+          await ctx.runMutation(internal.playbooks.markShared, { eventId });
+        }
+        return;
+      }
       if (!playbook) {
         const created = await sheetsJson("https://sheets.googleapis.com/v4/spreadsheets", token.accessToken, {
           method: "POST",
@@ -176,6 +209,10 @@ export const syncPlaybook = internalAction({
       }
       const requests = pagWriteRequests(pagSheetId, pagPlan(context.fields, Date.now()));
       await sheetsJson(`https://sheets.googleapis.com/v4/spreadsheets/${playbook.spreadsheetId}:batchUpdate`, token.accessToken, { method: "POST", body: { requests } });
+      if (canShare && !playbook.shared) {
+        await sharePlaybook(token.accessToken, playbook.spreadsheetId);
+        await ctx.runMutation(internal.playbooks.markShared, { eventId });
+      }
       await ctx.runMutation(internal.playbooks.noteResult, { eventId, revisionNumber: context.revisionNumber });
     } catch (error) {
       const message = error instanceof Error ? error.message : "Playbook write failed";

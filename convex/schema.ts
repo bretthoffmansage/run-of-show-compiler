@@ -64,6 +64,8 @@ export default defineSchema({
     lastWriteAt: v.optional(v.number()),
     lastRevisionNumber: v.optional(v.number()),
     lastError: v.optional(v.string()),
+    /** Link-sharing applied, so the in-app embed and team links work. */
+    shared: v.optional(v.boolean()),
   }).index("by_event", ["eventId"]),
   googleConnections: defineTable({
     accountEmail: v.string(),

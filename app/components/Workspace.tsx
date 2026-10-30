@@ -87,7 +87,7 @@ function sourceStatus(source: WorkspaceSource): { label: string; tone: "ok" | "w
   }
 }
 
-export function Workspace({ sources, entries, actions, playbookUrl }: { sources: WorkspaceSource[]; entries: WorkspaceEntry[]; actions?: SourceActions; playbookUrl?: string | null }) {
+export function Workspace({ sources, entries, actions, playbookUrl, playbookShared }: { sources: WorkspaceSource[]; entries: WorkspaceEntry[]; actions?: SourceActions; playbookUrl?: string | null; playbookShared?: boolean }) {
   const [selectedId, setSelectedId] = useState(sources[0]?.id ?? null);
   const selected = sources.find(source => source.id === selectedId) ?? sources[0];
   const status = selected ? sourceStatus(selected) : null;
@@ -123,7 +123,8 @@ export function Workspace({ sources, entries, actions, playbookUrl }: { sources:
       </section>
       <section className="pane" aria-labelledby="master-title">
         <div className="pane-heading"><span className="eyebrow">02 / PLAYBOOK</span><h2 id="master-title">Playbook</h2>{playbookUrl && <a className="playbook-link" href={playbookUrl} target="_blank" rel="noopener noreferrer">Open playbook ↗</a>}</div>
-        {playbookUrl && <iframe className="playbook-embed" src={`${playbookUrl.replace(/\/edit.*$/, "")}/preview`} title="Playbook spreadsheet" referrerPolicy="no-referrer" />}
+        {playbookUrl && playbookShared && <iframe className="playbook-embed" src={`${playbookUrl.replace(/\/edit.*$/, "")}/preview`} title="Playbook spreadsheet" referrerPolicy="no-referrer" />}
+        {playbookUrl && !playbookShared && <p className="muted playbook-pending">The playbook sheet exists but isn&apos;t link-shared yet, so it can&apos;t display here. It shares itself within a couple of minutes once the Google connection has the latest permissions (see the banner above if one is showing).</p>}
         {entries.length ? <div className="master-list">
           {entries.map((entry, index) => {
             const dayHeading = dayHeadings[index];

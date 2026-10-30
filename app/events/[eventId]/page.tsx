@@ -83,7 +83,7 @@ export default async function EventWorkspace({ params, searchParams }: {
     <header className="dashboard-header"><div><Link className="back-link" href={`/?organization=${event.organizationId}`}>← All events</Link><p className="eyebrow">SAGE · {organization.name} · EVENT WORKSPACE</p><h1>{event.name}</h1></div><SignOutButton redirectUrl="/sign-in"><button className="quiet-button">Sign out</button></SignOutButton></header>
     {notice && <p className="notice-banner" role="status">{notice}</p>}
     {liveSources.length > 0 && !googleStatus.connected && <p className="notice-banner warn" role="alert">No studio Google account is connected, so live sources cannot sync. <Link href="/settings">Connect it in Settings →</Link></p>}
-    {googleStatus.connected && !googleStatus.scopes.includes("spreadsheets") && <p className="notice-banner warn" role="alert">The Google connection predates playbook creation and can&apos;t create spreadsheets. <Link href="/settings">Reconnect it in Settings →</Link> (one click, keep every permission checked) and the playbook sheet will generate on the next compile.</p>}
+    {googleStatus.connected && (!googleStatus.scopes.includes("spreadsheets") || !googleStatus.scopes.includes("drive.file")) && <p className="notice-banner warn" role="alert">The Google connection predates the latest playbook permissions (creating and sharing the playbook sheet). <Link href="/settings">Reconnect it in Settings →</Link> — one click, keep every permission checked — and the playbook will generate and appear here on its own.</p>}
     {playbook?.lastError && <p className="notice-banner warn" role="alert">Playbook sheet: {{
       needs_reconnect_for_sheets: "reconnect Google in Settings to grant spreadsheet access — it will generate on its own after that",
       no_google_connection: "connect the studio Google account in Settings and it will generate on its own",
@@ -94,7 +94,7 @@ export default async function EventWorkspace({ params, searchParams }: {
       {runningRun ? " · Compiling…" : latestRun ? ` · Last compile ${latestRun.status}${latestRun.status === "failed" && latestRun.error ? ` (${latestRun.error})` : ""}` : ""}
       {" · "}<span className="legend"><span className="text-conflict">red = sources disagree, ask the client</span> · <span className="text-changed">pink = changed in the last 24h</span></span>
     </p>
-    <Workspace sources={workspaceSources} entries={entries} actions={{ refresh: refreshSource, setPaused: setSourcePaused, remove: removeSource }} playbookUrl={playbook?.url || null} />
+    <Workspace sources={workspaceSources} entries={entries} actions={{ refresh: refreshSource, setPaused: setSourcePaused, remove: removeSource }} playbookUrl={playbook?.url || null} playbookShared={playbook?.shared === true} />
     <div className="event-tools">
       <section className="dashboard-panel"><p className="eyebrow">03 / INTAKE</p><h2>Connect sources</h2>
         <div className="intake-grid">
