@@ -210,6 +210,5 @@ export function CompiledEntries({ entries }: { entries: WorkspaceEntry[] }) {
         </div>
       );
     })}
-    <p className="review-note"><span className="text-conflict">Red</span> = your sources disagree or the value is unresolved — ask the client. <span className="text-changed">Pink</span> = changed by a source edit in the last 24 hours.</p>
   </div>;
 }

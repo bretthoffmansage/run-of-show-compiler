@@ -30,7 +30,6 @@ export default async function EventPlaybook({ params }: { params: Promise<{ even
           <p className="eyebrow">SAGE · {organization.name} · PLAYBOOK</p>
           <h1>{event.name}</h1>
         </div>
-        <p className="workspace-status"><span className="legend"><span className="text-conflict">red = sources disagree, ask the client</span> · <span className="text-changed">pink = changed in the last 24h</span></span></p>
         <div className="page-head-actions">
           <a className="primary-link" href={playbook.url} target="_blank" rel="noopener noreferrer">Open in Google Sheets ↗</a>
         </div>

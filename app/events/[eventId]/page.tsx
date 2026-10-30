@@ -79,7 +79,7 @@ export default async function EventSources({ params, searchParams }: {
           </div>
         </section>
         <section className="dashboard-panel"><p className="eyebrow">COMPILED</p><h2>Compiled run of show</h2>
-          <p className="muted">Sources compile automatically — nothing waits for approval. <span className="text-conflict">Red</span> marks fields your sources disagree on (or that are unresolved); <span className="text-changed">pink</span> marks values a client changed in the last 24 hours. {history.decisions.length} compile decisions across {history.revisions.length} immutable revisions.</p>
+          <p className="muted">Sources compile automatically — nothing waits for approval. {history.decisions.length} compile decisions across {history.revisions.length} immutable revisions.</p>
           {revision ? <a className="export-link" href={`/api/events/${eventId}/export`}>Download compiled HTML →</a> : <p className="muted">Add a source and the run of show compiles itself.</p>}
           <CompiledEntries entries={entries} />
           {entries.length ? <form action={editMaster} className="stacked-form"><input type="hidden" name="eventId" value={eventId}/><label htmlFor="entry-key">Entry</label><select id="entry-key" name="entryKey">{entries.map(entry => <option key={entry.id} value={entry.id}>{entry.title}</option>)}</select><label htmlFor="edited-title">Corrected title</label><input id="edited-title" name="value" required/><button type="submit">Save title as new revision</button></form> : null}
