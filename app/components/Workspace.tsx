@@ -152,6 +152,40 @@ export function SourcePane({ sources, actions, fill }: { sources: WorkspaceSourc
   );
 }
 
+/**
+ * Simple source list for page 1: one compact row per document — name,
+ * status, sync metadata, controls. No embeds here; the documents render
+ * full-size on the playbook split page.
+ */
+export function SourceRows({ sources, actions }: { sources: WorkspaceSource[]; actions?: SourceActions }) {
+  if (!sources.length) return <div className="empty"><span className="empty-mark" aria-hidden="true">↗</span><h3>No sources yet</h3><p>Connect a Google Doc or Sheet, or paste a static source, alongside.</p></div>;
+  return <ul className="source-rows">
+    {sources.map(source => {
+      const status = sourceStatus(source);
+      const original = safeOriginalUrl(source.originalUrl);
+      return <li key={source.id} className="source-row">
+        <div className="source-row-main">
+          <strong>{source.name}</strong>
+          <span className={`status-chip status-${status.tone}`} suppressHydrationWarning>{status.label}</span>
+        </div>
+        <p className="metadata" suppressHydrationWarning>
+          {source.provider === "manual"
+            ? "Static input · no live sync"
+            : `Checked ${ago(source.lastCheckedAt)} · Synced ${ago(source.lastSyncAt)}${source.lastRevision ? ` · Rev ${source.lastRevision}` : ""}`}
+        </p>
+        <div className="source-controls">
+          {original && <a href={original} target="_blank" rel="noopener noreferrer">Open original ↗</a>}
+          {actions && <>
+            {source.provider !== "manual" && source.state !== "paused" && <form action={actions.refresh}><input type="hidden" name="eventId" value={source.eventId} /><input type="hidden" name="sourceId" value={source.id} /><button type="submit" className="quiet-button">Refresh now</button></form>}
+            {source.provider !== "manual" && <form action={actions.setPaused}><input type="hidden" name="eventId" value={source.eventId} /><input type="hidden" name="sourceId" value={source.id} /><input type="hidden" name="paused" value={source.state === "paused" ? "false" : "true"} /><button type="submit" className="quiet-button">{source.state === "paused" ? "Resume sync" : "Pause sync"}</button></form>}
+            <form action={actions.remove}><input type="hidden" name="eventId" value={source.eventId} /><input type="hidden" name="sourceId" value={source.id} /><button type="submit" className="quiet-button danger">Remove</button></form>
+          </>}
+        </div>
+      </li>;
+    })}
+  </ul>;
+}
+
 /** The compiled run of show as a list, with the red/pink marking legend. */
 export function CompiledEntries({ entries }: { entries: WorkspaceEntry[] }) {
   const dayHeadings = entries.map((entry, index) => {

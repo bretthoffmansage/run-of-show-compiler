@@ -4,17 +4,16 @@ import { SignOutButton } from "@clerk/nextjs";
 import { parseConvexId } from "../../../lib/convex-id";
 import { authorizedConvex } from "../../../lib/server-session";
 import { addGoogleSource, addManualSource, editMaster, refreshSource, removeSource, setSourcePaused } from "../../actions";
-import { CompiledEntries, SourcePane } from "../../components/Workspace";
+import { CompiledEntries, SourceRows } from "../../components/Workspace";
 import { RevisionHistory } from "../../components/RevisionHistory";
 import { AutoRefresh } from "../../components/AutoRefresh";
 import { AppShell } from "../../components/AppShell";
 import { loadEventWorkspace } from "./workspace-data";
 
 /**
- * Page 1 of an event: the client documents, full screen. Each upload/link is
- * a tab rendering the live document; intake and the compiled details live
- * below the fold. Once the playbook sheet exists, the split view gets its
- * own page (./playbook).
+ * Page 1 of an event: a simple screen — add documents, see each one's
+ * status at a glance. No embeds here; the documents and the playbook
+ * render full-screen on the split page (./playbook) once the sheet exists.
  */
 export default async function EventSources({ params, searchParams }: {
   params: Promise<{ eventId: string }>;
@@ -33,7 +32,7 @@ export default async function EventSources({ params, searchParams }: {
   const playbookReady = Boolean(playbook?.url);
   return <AppShell organizationName={organization.name} organizationId={organization._id} eventName={event.name} eventId={eventId}
     organizations={rail.organizations} events={rail.events} playbookReady={playbookReady} activePage="sources">
-    <main className="page-full">
+    <main className="event-page">
       <AutoRefresh seconds={runningRun ? 10 : 30} />
       <header className="page-head">
         <div>
@@ -57,8 +56,10 @@ export default async function EventSources({ params, searchParams }: {
         no_google_connection: "connect the studio Google account in Settings and it will generate on its own",
         google_connection_failed: "the Google connection is failing; reconnect it in Settings",
       }[playbook.lastError] ?? `last write failed (${playbook.lastError}) — it retries every couple of minutes`}.</p>}
-      <SourcePane sources={workspaceSources} actions={{ refresh: refreshSource, setPaused: setSourcePaused, remove: removeSource }} fill />
       <div className="event-tools">
+        <section className="dashboard-panel"><p className="eyebrow">SOURCES</p><h2>Client documents</h2>
+          <SourceRows sources={workspaceSources} actions={{ refresh: refreshSource, setPaused: setSourcePaused, remove: removeSource }} />
+        </section>
         <section className="dashboard-panel"><p className="eyebrow">INTAKE</p><h2>Connect sources</h2>
           <div className="intake-grid">
             <form action={addGoogleSource} className="stacked-form">
