@@ -51,7 +51,7 @@ export const snapshotContext = internalQuery({
  * day-header dates): the reaper cron then re-extracts every source's latest
  * snapshot under the new rules and the compile rebuilds from the result.
  */
-export const EXTRACTION_PROMPT_VERSION = 2;
+export const EXTRACTION_PROMPT_VERSION = 3;
 
 export const startRun = internalMutation({
   args: {
@@ -122,8 +122,10 @@ export const runSnapshot = internalAction({
       // failures are kept per-chunk: whatever extracted still compiles.
       // Chunks whose extraction output overflows the model's token cap
       // (dense spreadsheets) are bisected and retried at a smaller size.
+      // Smaller chunks keep each model call comfortably inside the 100-item
+      // report schema, so complete coverage never silently trims.
       const deadline = Date.now() + 7 * 60 * 1000;
-      const queue = chunkByLines(context.content).slice(0, 24).map(chunk => ({ chunk, depth: 0 }));
+      const queue = chunkByLines(context.content, 16_000).slice(0, 32).map(chunk => ({ chunk, depth: 0 }));
       const items: ExtractionOutput["items"] = [];
       let attempted = 0;
       let failedChunks = 0;
@@ -152,7 +154,7 @@ export const runSnapshot = internalAction({
           firstError ??= message.slice(0, 300);
         }
       }
-      const limited = items.slice(0, 200);
+      const limited = items.slice(0, 400);
       if (!limited.length && (failedChunks || skippedChunks)) {
         await ctx.runMutation(internal.extraction.finishRun, { runId, status: "failed", error: firstError ?? `ran out of time (${skippedChunks} chunks unprocessed)` });
         return;

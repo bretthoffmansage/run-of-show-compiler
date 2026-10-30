@@ -119,6 +119,18 @@ describe("PAG model: days horizontal, time flowing downward", () => {
       { label: "Slides", text: "Day 1 Slidedeck", mark: null },
     ]);
   });
+
+  it("carries every remaining captured field as labeled block facts", () => {
+    const model = pagModel([
+      field("x", "date", "Oct 21"), field("x", "start_time", "9:00 AM"), field("x", "title", "Opening"),
+      field("x", "duration", "0:20:00"), field("x", "audience", "VIP"), field("x", "dependency", "After tech check"),
+    ], NOW);
+    expect(model.days[0].blocks[0].meta).toEqual([
+      { label: "Duration", text: "0:20:00", mark: null },
+      { label: "Audience", text: "VIP", mark: null },
+      { label: "Depends on", text: "After tech check", mark: null },
+    ]);
+  });
 });
 
 describe("downward placement never overlaps", () => {

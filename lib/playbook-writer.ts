@@ -87,6 +87,8 @@ export interface PagBlock {
   timeMark: Mark;
   speaker: string | null;
   speakerMark: Mark;
+  /** Labeled short facts (duration, audience, dependency, time zone, type). */
+  meta: Array<{ label: string; text: string; mark: Mark }>;
   body: Array<{ text: string; mark: Mark }>;
   av: Array<{ label: string; text: string; mark: Mark }>;
   type: BlockType;
@@ -143,6 +145,14 @@ export function dayNumberOf(dayField: string | null, dateText: string | null): n
 }
 
 const BODY_FIELDS = ["script", "additional_detail"] as const;
+/** Every other captured field lands on the sheet too — complete coverage. */
+const META_FIELDS: Array<{ key: string; label: string }> = [
+  { key: "duration", label: "Duration" },
+  { key: "audience", label: "Audience" },
+  { key: "dependency", label: "Depends on" },
+  { key: "time_zone", label: "Time zone" },
+  { key: "type", label: "Type" },
+];
 const AV_FIELDS: Array<{ key: string; label: string }> = [
   { key: "audio", label: "Audio" },
   { key: "video", label: "Video" },
@@ -169,6 +179,7 @@ export function pagModel(fields: CompiledField[], now: number): PagModel {
       timeMark: markFor(timeMarkSource, now),
       speaker: get("speaker")?.value ?? null,
       speakerMark: markFor(get("speaker"), now),
+      meta: META_FIELDS.flatMap(({ key, label }) => { const f = get(key); return f ? [{ label, text: f.value, mark: markFor(f, now) }] : []; }),
       body: BODY_FIELDS.flatMap(key => { const f = get(key); return f ? [{ text: f.value, mark: markFor(f, now) }] : []; }),
       av: AV_FIELDS.flatMap(({ key, label }) => { const f = get(key); return f ? [{ label, text: f.value, mark: markFor(f, now) }] : []; }),
       type: classifyBlock(get("type")?.value ?? null, get("title")?.value ?? "", Boolean(get("break"))),
@@ -225,7 +236,7 @@ export function pagModel(fields: CompiledField[], now: number): PagModel {
     // Duplicate rows (same start, same title bar punctuation/case) collapse
     // to the richer block — merged day variants would otherwise double up.
     const slug = (block: PagBlock) => `${block.startMin}\u0000${block.title.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim()}`;
-    const richness = (block: PagBlock) => [block.timeText, block.speaker].filter(Boolean).length + block.body.length + block.av.length;
+    const richness = (block: PagBlock) => [block.timeText, block.speaker].filter(Boolean).length + block.meta.length + block.body.length + block.av.length;
     const byId = new Map<string, PagBlock>();
     for (const block of day.blocks) {
       const id = slug(block);
@@ -288,6 +299,10 @@ function blockParts(block: PagBlock): TextPart[] {
   if (block.timeText) parts.push({ text: `\n${block.timeText}`, color: colorOf(block.timeMark), bold: true });
   else parts.push({ text: "\nNo time listed", color: RED, bold: true });
   if (block.speaker) parts.push({ text: `\n${block.speaker}`, color: colorOf(block.speakerMark) });
+  for (const item of block.meta) {
+    parts.push({ text: `\n${item.label}: `, bold: true });
+    parts.push({ text: item.text, color: colorOf(item.mark) });
+  }
   for (const line of block.body) parts.push({ text: `\n\n${line.text}`, color: colorOf(line.mark) });
   return parts;
 }

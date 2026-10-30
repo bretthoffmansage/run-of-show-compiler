@@ -68,7 +68,7 @@ Rules:
 - script: MC copy or spoken-word text, trimmed to the relevant passage. production_note / stage_direction / video / slides / audio: technical cues as written.
 - additional_detail: anything material that fits no other key (links, contacts, catering, chat status, ownership).
 - confidence reflects how certain the interpretation is, not how important the item is.
-- Low-information lines (page headers, legends, blank separators) are not items.
+- COMPLETE COVERAGE: every piece of text in the document must be carried into the report — as its own item, or inside a field of the item it belongs to (additional_detail when nothing else fits). Nothing is too minor: chat statuses, screen/logo notes, music cues, countdowns, parentheticals, column stubs. Only blank separators and pure formatting artifacts may be dropped. When in doubt, carry it.
 
 Report exclusively by calling report_extraction once.`;
 
